@@ -57,6 +57,22 @@ button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:poin
 #clockbtn .d{font-size:9.5px;color:var(--mut);letter-spacing:.02em}
 #clockbtn .s{font-size:13px;font-weight:700;color:var(--acc)}
 #clockbtn.paused .s{color:var(--haz)}
+/* Auto-paused: the clock is the one thing the player needs to find. */
+#clockbtn.autop{border-color:var(--haz);animation:pulseHaz 1.8s ease-in-out infinite}
+@keyframes pulseHaz{0%,100%{box-shadow:0 0 0 0 rgba(240,138,36,.45)}50%{box-shadow:0 0 0 8px rgba(240,138,36,0)}}
+
+#pausebar{
+  display:none;align-items:center;gap:9px;margin-top:8px;padding:7px 9px 7px 11px;
+  border-radius:10px;background:rgba(240,138,36,.13);
+  border:1px solid rgba(240,138,36,.38);color:var(--haz);
+}
+#pausebar.on{display:flex}
+#pausebar .r{flex:1;min-width:0;font-size:12px;font-weight:600;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#pausebar button{
+  flex:none;min-height:32px;padding:0 13px;border-radius:8px;font-size:12.5px;font-weight:700;
+  background:var(--haz);color:#160A02;border:0;
+}
 
 /* ---- scroll region ---- */
 #screen{
@@ -261,6 +277,7 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border:3px solid var(
       <div class="kpi" style="flex:.72"><div class="lbl">Util</div><div class="val tnum" id="k-util">—</div></div>
       <button id="clockbtn" aria-label="Game speed"><span class="d" id="k-date">—</span><span class="s" id="k-spd">1×</span></button>
     </div>
+    <div id="pausebar"><span class="r" id="pb-r"></span><button id="pb-go">Resume</button></div>
   </div>
   <div id="screen"></div>
 </div>
@@ -2208,6 +2225,7 @@ function load(raw){
   const d = JSON.parse(raw);
   if(!d || !d.s) throw new Error("not a Kription save");
   S = d.s;
+  if(S.autoPause === undefined) S.autoPause = true;   // saves from before the setting
   // Rebuild the market: same seed, then restore the evolved values directly.
   MKT = newMarket(d.mkt.seed);
   MKT.oil = d.mkt.oil; MKT.oilNoise = d.mkt.oilNoise;
@@ -2366,7 +2384,26 @@ function renderTop(){
   $("k-util").textContent = pc(utilisation());
   $("k-date").textContent = dateStr();
   $("k-spd").textContent = S.paused ? "❚❚" : S.speed+"×";
-  $("clockbtn").className = S.paused ? "paused" : "";
+  $("clockbtn").className = (S.paused ? "paused" : "") + (S.pauseReason ? " autop" : "");
+  const pb = $("pausebar");
+  if(pb){
+    pb.classList.toggle("on", !!S.pauseReason);
+    if(S.pauseReason) $("pb-r").textContent = S.pauseReason;
+  }
+}
+
+/* Auto-pause. An idle ship is charged OPEX and debt service every day whether
+   you are reading a result screen or choosing her next cargo, so the clock stops
+   whenever the game interrupts you. It does NOT restart when you dismiss the
+   sheet — deciding what to do next is exactly when you least want time running. */
+function autoPause(reason){
+  if(!S.autoPause || S.bust) return;
+  S.paused = true; S.pauseReason = reason;
+  dirty();
+}
+function resumeClock(){
+  S.paused = false; S.pauseReason = null;
+  dirty();
 }
 
 /* Net daily result: what the fleet is actually earning per day right now.
@@ -2501,6 +2538,9 @@ const kvt= (k,v,c)=>`<div class="kv tot"><span class="k">${k}</span><span class=
    VOYAGE RESULT — the payoff moment. TCE in large type, breakdown one tap away.
    ========================================================================= */
 function onVoyageDone(e, sh){
+  // She is idle from this moment and charged for it, so stop the clock whether or
+  // not the full result sheet opens.
+  autoPause(`${sh.name} discharged ${e.dischName}`);
   const bigMoment = S.voyagesDone <= 2 || Math.abs(e.tce) > 40000;
   if(bigMoment) sheetResult(e);          // the sheet says it all; don't stack a toast on it
   else toast(`<b>${esc(sh.name)}</b> discharged ${esc(e.dischName)} · ${money(e.gvp,true)} · TCE ${money(e.tce)}/d`,
@@ -2783,6 +2823,13 @@ function sheetSettings(){
       <button class="btn sm" style="width:100%;margin-bottom:8px" onclick="doExport()">Export save as JSON</button>
       <button class="btn sm" style="width:100%" onclick="doImport()">Import save</button>
     </div>
+    <h2 class="sect">Clock</h2><div class="card" style="margin:0">
+      <div class="between"><div class="grow">
+        <div class="b sm">Pause when a ship needs you</div>
+        <div class="xs mut" style="margin-top:3px">A ship earns nothing and still costs you OPEX and debt service the moment she goes idle. With this on, the clock stops when a voyage ends, a charter is redelivered, or an event needs a decision — and stays stopped until you resume, so choosing her next employment is free.</div>
+      </div>
+      <button class="btn sm" style="flex:none" onclick="S.autoPause=!S.autoPause;if(!S.autoPause)S.pauseReason=null;sheetSettings();dirty()">${S.autoPause?"On":"Off"}</button></div>
+    </div>
     <h2 class="sect">Offline</h2><div class="card" style="margin:0">
       <div class="sm mut">While the tab is closed, ships finish the voyage they are on and then wait — the game never fixes cargo on your behalf. Elapsed time is capped at ${CFG.OFFLINE_CAP_DAYS} days so running costs cannot spiral while you are away.</div>
     </div>
@@ -2890,6 +2937,7 @@ function newGame(seed){
     daily: [], log: [], seen: {}, coached: {}, mkt: null,
     rep: 0.5, rating: "C", cov: null,
     redSeaClosed: CFG.REDSEA_CLOSED_START, drought: false,
+    autoPause: true, pauseReason: null,
     lastWall: Date.now(), debug: false,
   };
 
@@ -3178,7 +3226,10 @@ function maybeAutoEmploy(sh, quiet){
 function endEmployment(sh, quiet){
   const t = sh.emp.type;
   sh.emp = { type:"spot" };
-  if(!quiet) toast(`<b>${esc(sh.name)}</b> redelivered from ${t === "tc" ? "time charter" : t === "bb" ? "bareboat" : "contract"}.`, "warn");
+  if(!quiet){
+    toast(`<b>${esc(sh.name)}</b> redelivered from ${t === "tc" ? "time charter" : t === "bb" ? "bareboat" : "contract"}.`, "warn");
+    autoPause(`${sh.name} redelivered and open`);
+  }
 }
 
 /* ==========================================================================
@@ -3638,7 +3689,7 @@ function settleTax(quiet){
       `Result for the year ${money(profit)}. Assessed on ${basis}: ${money(tax)}.
        ${allTonnage ? "Every ship sits in a tonnage-tax regime, so the charge is on tonnage rather than profit." :
        "Not all your ships are in a tonnage-tax regime, so the whole group is assessed on profit. Reflagging to NIS, Malta or Singapore would change that — at the cost of a dearer manning bill every day."}`,
-      tax > profit*0.15 ? "warn" : "good");
+      tax > profit*0.15 ? "warn" : "good", true);
 }
 
 /* ==========================================================================
@@ -3752,6 +3803,7 @@ function rollEvents(dt){
   S.eventStamp = S.day;
   if(ev.psc){ maybePsc(sh, false); return; }
   S.events.push({ evId:ev.id, shipId:sh.id, day:S.day, id:"E"+(S.nextId++) });
+  autoPause(`${sh.name} — ${ev.title.toLowerCase()}`);
   dirty();
 }
 function pickEvent(sh){
@@ -3835,8 +3887,11 @@ function autoResolveStale(){
 
 /* A note the player must see, but which must not stop a 30-ship fleet. */
 const noteQueue = [];
-function queueNote(title, body, kind){
+function queueNote(title, body, kind, noPause){
   noteQueue.push({ title, body, kind });
+  // Informational notes (the tax year closing) let the clock run; anything that
+  // needs a response stops it.
+  if(!noPause) autoPause(title);
   if(!sheetOpen) flushNote();
 }
 function flushNote(){
@@ -4985,7 +5040,10 @@ $("tabs").addEventListener("click", (ev)=>{
 $("scrim").addEventListener("click", hideSheet);
 $("sheet").querySelector(".grab").addEventListener("click", hideSheet);
 
+$("pb-go").addEventListener("click", resumeClock);
+
 $("clockbtn").addEventListener("click", ()=>{
+  S.pauseReason = null;
   if(S.paused){ S.paused = false; }
   else {
     const i = CFG.SPEEDS.indexOf(S.speed);
@@ -5163,7 +5221,11 @@ window.addEventListener("visibilitychange", ()=>{ if(document.hidden) save(); })
   render();
   requestAnimationFrame(frame);
 
-  if(off && off.completed >= 0 && off.days >= 0.5) sheetAway(off);
+  if(off && off.completed >= 0 && off.days >= 0.5){
+    sheetAway(off);
+    if(S.ships.some(s=>s.status === "idle" && (!s.emp || s.emp.type === "spot")))
+      autoPause("Ships idle since you were away");
+  }
   else if(!resumed){
     coach("welcome", "One ship, and a mortgage",
       `You own <b>${esc(S.ships[0].name)}</b> — a ${shipAge(S.ships[0])}-year-old Handysize bulker lying at Riga, and ${money(S.cash)} in the bank. Running costs are charged every day whether she is working or not. Find her a cargo.`);
