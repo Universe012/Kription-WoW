@@ -358,7 +358,8 @@ const CFG = {
     histEvery: 5,          // sample the index every N days for charts
     histMax: 400,
   },
-  FIXTURE_REFRESH_DAYS: 6, // the board turns over roughly weekly
+  FIXTURE_REFRESH_DAYS: 4, // the board turns over about twice a week
+  FIXTURE_MAX_AGE: 12,     // an offer stays on the board this long before it lapses
   FIXTURE_NOISE: 0.10,     // ±10% dispersion between competing brokers
 
   /* --- progressive disclosure -------------------------------------------- */
@@ -444,6 +445,9 @@ const CARGOES = {
   sugar:   { name:"Raw sugar",      grp:"agri",  sf:1.28, load:10000, disch:6000  },
   salt:    { name:"Salt",           grp:"min",   sf:0.95, load:12000, disch:8000  },
   logs:    { name:"Logs",           grp:"forest",sf:2.20, load:3000,  disch:2500  },
+  phosrock:{ name:"Phosphate rock",  grp:"fert",  sf:0.90, load:9000,  disch:6000  },
+  dap:     { name:"DAP fertiliser",  grp:"fert",  sf:0.95, load:8000,  disch:5000  },
+  gypsum:  { name:"Gypsum",          grp:"min",   sf:0.80, load:10000, disch:7000  },
 };
 
 /* ----------------------------------------------------------------------------
@@ -572,63 +576,82 @@ const PORTS = {
 const ROUTES = [
   // --- Baltic / Continent short-sea: the Handysize home patch ------------
   { l:"riga",       d:"ghent",      c:"wheat",   rate:9.92,  dwt:[20000,62000], w:10 },
-  { l:"riga",       d:"rotterdam",  c:"wheat",   rate:8.65,  dwt:[20000,62000], w:8 },
-  { l:"klaipeda",   d:"rotterdam",  c:"wheat",   rate:7.99,  dwt:[20000,62000], w:8 },
-  { l:"klaipeda",   d:"casablanca", c:"wheat",   rate:14.49, dwt:[20000,62000], w:7 },
-  { l:"gdansk",     d:"immingham",  c:"coal",    rate:7.70,  dwt:[20000,80000], w:6 },
+  { l:"riga",       d:"rotterdam",  c:"wheat",   rate:8.68,  dwt:[20000,62000], w:8 },
+  { l:"klaipeda",   d:"rotterdam",  c:"wheat",   rate:8.02,  dwt:[20000,62000], w:8 },
+  { l:"klaipeda",   d:"casablanca", c:"wheat",   rate:14.50, dwt:[20000,62000], w:7 },
+  { l:"gdansk",     d:"immingham",  c:"coal",    rate:7.68,  dwt:[20000,80000], w:6 },
   { l:"ventspils",  d:"antwerp",    c:"potash",  rate:10.11, dwt:[20000,62000], w:6 },
-  { l:"tallinn",    d:"hamburg",    c:"barley",  rate:9.41,  dwt:[20000,55000], w:6 },
-  { l:"kotka",      d:"rouen",      c:"logs",    rate:26.56, dwt:[20000,45000], w:4 },
-  { l:"lulea",      d:"rotterdam",  c:"ironore", rate:8.47, dwt:[20000,50000], w:3, iceReq:1 },
-  { l:"rouen",      d:"casablanca", c:"wheat",   rate:12.98, dwt:[20000,55000], w:7 },
-  { l:"rouen",      d:"alexandria", c:"wheat",   rate:21.44, dwt:[20000,62000], w:6 },
-  { l:"ghent",      d:"aliaga",     c:"scrap",   rate:15.87, dwt:[20000,62000], w:8 },
-  { l:"rotterdam",  d:"aliaga",     c:"scrap",   rate:15.00, dwt:[20000,62000], w:7 },
-  { l:"amsterdam",  d:"iskenderun", c:"scrap",   rate:17.79, dwt:[20000,58000], w:5 },
-  { l:"antwerp",    d:"lagos",      c:"cement",  rate:30.63, dwt:[20000,55000], w:5 },
-  { l:"dunkirk",    d:"tarragona",  c:"steel",   rate:17.18, dwt:[20000,45000], w:4 },
+  { l:"tallinn",    d:"hamburg",    c:"barley",  rate:9.45,  dwt:[20000,55000], w:6 },
+  { l:"kotka",      d:"rouen",      c:"logs",    rate:26.61, dwt:[20000,45000], w:4 },
+  { l:"lulea",      d:"rotterdam",  c:"ironore", rate:8.48, dwt:[20000,50000], w:3, iceReq:1 },
+  { l:"rouen",      d:"casablanca", c:"wheat",   rate:13.00, dwt:[20000,55000], w:7 },
+  { l:"rouen",      d:"alexandria", c:"wheat",   rate:21.40, dwt:[20000,62000], w:6 },
+  { l:"ghent",      d:"aliaga",     c:"scrap",   rate:15.86, dwt:[20000,62000], w:8 },
+  { l:"rotterdam",  d:"aliaga",     c:"scrap",   rate:14.99, dwt:[20000,62000], w:7 },
+  { l:"amsterdam",  d:"iskenderun", c:"scrap",   rate:17.78, dwt:[20000,58000], w:5 },
+  { l:"antwerp",    d:"lagos",      c:"cement",  rate:31.67, dwt:[20000,55000], w:5 },
+  { l:"dunkirk",    d:"tarragona",  c:"steel",   rate:17.22, dwt:[20000,45000], w:4 },
   { l:"immingham",  d:"gdansk",     c:"salt",    rate:9.51,  dwt:[20000,50000], w:4 },
   // --- Mediterranean / Black Sea ---------------------------------------
-  { l:"constanta",  d:"alexandria", c:"wheat",   rate:9.71, dwt:[20000,80000], w:9 },
-  { l:"constanta",  d:"damietta",   c:"corn",    rate:9.43, dwt:[20000,80000], w:8 },
-  { l:"novoros",    d:"alexandria", c:"wheat",   rate:10.02, dwt:[20000,80000], w:7 },
-  { l:"constanta",  d:"livorno",    c:"wheat",   rate:10.79, dwt:[20000,62000], w:5 },
-  { l:"aliaga",     d:"casablanca", c:"steel",   rate:18.28, dwt:[20000,45000], w:4 },
-  { l:"tarragona",  d:"dakar",      c:"cement",  rate:20.43, dwt:[20000,45000], w:4 },
-  { l:"alexandria", d:"livorno",    c:"urea",    rate:13.90, dwt:[20000,55000], w:4 },
+  { l:"constanta",  d:"alexandria", c:"wheat",   rate:9.75, dwt:[20000,80000], w:9 },
+  { l:"constanta",  d:"damietta",   c:"corn",    rate:9.47, dwt:[20000,80000], w:8 },
+  { l:"novoros",    d:"alexandria", c:"wheat",   rate:10.07, dwt:[20000,80000], w:7 },
+  { l:"constanta",  d:"livorno",    c:"wheat",   rate:10.83, dwt:[20000,62000], w:5 },
+  { l:"aliaga",     d:"casablanca", c:"steel",   rate:18.39, dwt:[20000,45000], w:4 },
+  { l:"tarragona",  d:"dakar",      c:"cement",  rate:21.45, dwt:[20000,45000], w:4 },
+  { l:"alexandria", d:"livorno",    c:"urea",    rate:13.97, dwt:[20000,55000], w:4 },
   // --- Transatlantic / US Gulf ------------------------------------------
-  { l:"neworleans", d:"ghent",      c:"corn",    rate:25.45, dwt:[30000,85000], w:8 },
-  { l:"neworleans", d:"rotterdam",  c:"soybean", rate:23.40, dwt:[30000,85000], w:7 },
-  { l:"neworleans", d:"casablanca", c:"wheat",   rate:24.10, dwt:[25000,70000], w:6 },
-  { l:"houston",    d:"santos",     c:"urea",    rate:25.59, dwt:[25000,62000], w:5 },
-  { l:"baltimore",  d:"rotterdam",  c:"cokecoal",rate:13.39, dwt:[45000,95000], w:6 },
-  { l:"tampa",      d:"santos",     c:"urea",    rate:23.45, dwt:[25000,60000], w:4 },
-  { l:"veracruz",   d:"neworleans", c:"salt",    rate:9.30, dwt:[20000,50000], w:4 },
+  { l:"neworleans", d:"ghent",      c:"corn",    rate:25.36, dwt:[30000,85000], w:8 },
+  { l:"neworleans", d:"rotterdam",  c:"soybean", rate:23.31, dwt:[30000,85000], w:7 },
+  { l:"neworleans", d:"casablanca", c:"wheat",   rate:24.15, dwt:[25000,70000], w:6 },
+  { l:"houston",    d:"santos",     c:"urea",    rate:25.64, dwt:[25000,62000], w:5 },
+  { l:"baltimore",  d:"rotterdam",  c:"cokecoal",rate:13.36, dwt:[45000,95000], w:6 },
+  { l:"tampa",      d:"santos",     c:"urea",    rate:23.50, dwt:[25000,60000], w:4 },
+  { l:"veracruz",   d:"neworleans", c:"salt",    rate:9.33, dwt:[20000,50000], w:4 },
   // --- East Coast South America ----------------------------------------
-  { l:"sanlorenzo", d:"casablanca", c:"corn",    rate:30.57, dwt:[25000,62000], w:7 },
-  { l:"sanlorenzo", d:"rotterdam",  c:"soybean", rate:34.19, dwt:[25000,62000], w:7 },
-  { l:"sanlorenzo", d:"alexandria", c:"wheat",   rate:38.99, dwt:[25000,70000], w:5 },
-  { l:"santos",     d:"rotterdam",  c:"sugar",   rate:24.67, dwt:[25000,62000], w:6 },
-  { l:"santos",     d:"qingdao",    c:"soybean", rate:34.31, dwt:[60000,100000],w:7 },
-  { l:"paranagua",  d:"shanghai",   c:"soybean", rate:35.18, dwt:[60000,100000],w:6 },
-  { l:"tubarao",    d:"qingdao",    c:"ironore", rate:21.14, dwt:[150000,340000],w:9 },
-  { l:"tubarao",    d:"rotterdam",  c:"ironore", rate:11.51, dwt:[150000,340000],w:6 },
-  { l:"vitoria",    d:"aliaga",     c:"ironore", rate:20.07, dwt:[45000,95000], w:5 },
+  { l:"sanlorenzo", d:"casablanca", c:"corn",    rate:30.62, dwt:[25000,62000], w:7 },
+  { l:"sanlorenzo", d:"rotterdam",  c:"soybean", rate:34.06, dwt:[25000,62000], w:7 },
+  { l:"sanlorenzo", d:"alexandria", c:"wheat",   rate:39.04, dwt:[25000,70000], w:5 },
+  { l:"santos",     d:"rotterdam",  c:"sugar",   rate:24.60, dwt:[25000,62000], w:6 },
+  { l:"santos",     d:"qingdao",    c:"soybean", rate:33.72, dwt:[60000,100000],w:7 },
+  { l:"paranagua",  d:"shanghai",   c:"soybean", rate:34.59, dwt:[60000,100000],w:6 },
+  { l:"tubarao",    d:"qingdao",    c:"ironore", rate:20.74, dwt:[150000,340000],w:9 },
+  { l:"tubarao",    d:"rotterdam",  c:"ironore", rate:11.48, dwt:[150000,340000],w:6 },
+  { l:"vitoria",    d:"aliaga",     c:"ironore", rate:20.08, dwt:[45000,95000], w:5 },
   // --- West Africa ------------------------------------------------------
-  { l:"lagos",      d:"santos",     c:"urea",    rate:29.17, dwt:[25000,62000], w:4 },
-  { l:"takoradi",   d:"rotterdam",  c:"bauxite", rate:21.90, dwt:[25000,62000], w:4 },
-  { l:"abidjan",    d:"livorno",    c:"logs",    rate:43.05, dwt:[20000,45000], w:3 },
+  { l:"lagos",      d:"santos",     c:"urea",    rate:29.26, dwt:[25000,62000], w:4 },
+  { l:"takoradi",   d:"rotterdam",  c:"bauxite", rate:24.31, dwt:[25000,62000], w:4 },
+  { l:"abidjan",    d:"livorno",    c:"logs",    rate:44.64, dwt:[20000,45000], w:3 },
   // --- Pacific / Indian Ocean ------------------------------------------
   { l:"porthedland",d:"qingdao",    c:"ironore", rate:8.00,  dwt:[150000,340000],w:10 },
   { l:"dampier",    d:"qingdao",    c:"ironore", rate:7.92,  dwt:[150000,340000],w:8 },
-  { l:"newcastleau",d:"chiba",      c:"coal",    rate:14.76, dwt:[60000,110000],w:8 },
-  { l:"newcastleau",d:"qingdao",    c:"coal",    rate:15.34, dwt:[60000,110000],w:7 },
-  { l:"vizag",      d:"singapore",  c:"ironore", rate:6.29, dwt:[45000,85000], w:4 },
-  { l:"kandla",     d:"singapore",  c:"salt",    rate:15.33, dwt:[25000,62000], w:4 },
-  { l:"singapore",  d:"mumbai",     c:"coal",    rate:9.68, dwt:[45000,85000], w:5 },
-  { l:"qingdao",    d:"singapore",  c:"steel",   rate:13.37, dwt:[20000,55000], w:5 },
-  { l:"shanghai",   d:"vizag",      c:"steel",   rate:19.31, dwt:[20000,55000], w:4 },
-  { l:"mumbai",     d:"fujairah",   c:"cement",  rate:11.87, dwt:[20000,50000], w:4 },
+  { l:"newcastleau",d:"chiba",      c:"coal",    rate:14.78, dwt:[60000,110000],w:8 },
+  { l:"newcastleau",d:"qingdao",    c:"coal",    rate:15.32, dwt:[60000,110000],w:7 },
+  { l:"vizag",      d:"singapore",  c:"ironore", rate:6.30, dwt:[45000,85000], w:4 },
+  { l:"kandla",     d:"singapore",  c:"salt",    rate:15.84, dwt:[25000,62000], w:4 },
+  { l:"singapore",  d:"mumbai",     c:"coal",    rate:9.56, dwt:[45000,85000], w:5 },
+  { l:"qingdao",    d:"singapore",  c:"steel",   rate:13.41, dwt:[20000,55000], w:5 },
+  { l:"shanghai",   d:"vizag",      c:"steel",   rate:19.37, dwt:[20000,55000], w:4 },
+  { l:"mumbai",     d:"fujairah",   c:"cement",  rate:12.71, dwt:[20000,50000], w:4 },
+  // --- backhauls: outbound trades from ports that previously had none -----
+  { l:"casablanca", d:"santos",     c:"phosrock",rate:23.12, dwt:[20000,62000], w:8 },
+  { l:"casablanca", d:"mumbai",     c:"phosrock",rate:37.67, dwt:[25000,80000], w:6 },
+  { l:"casablanca", d:"rotterdam",  c:"dap",     rate:12.53, dwt:[20000,55000], w:6 },
+  { l:"dakar",      d:"rotterdam",  c:"phosrock",rate:17.98, dwt:[20000,55000], w:4 },
+  { l:"livorno",    d:"alexandria", c:"steel",   rate:18.84, dwt:[20000,45000], w:5 },
+  { l:"iskenderun", d:"neworleans", c:"steel",   rate:33.26, dwt:[20000,55000], w:5 },
+  { l:"iskenderun", d:"antwerp",    c:"steel",   rate:21.16, dwt:[20000,50000], w:5 },
+  { l:"damietta",   d:"livorno",    c:"urea",    rate:13.19, dwt:[20000,55000], w:5 },
+  { l:"hamburg",    d:"aliaga",     c:"scrap",   rate:16.68, dwt:[20000,62000], w:7 },
+  { l:"lehavre",    d:"casablanca", c:"wheat",   rate:11.11, dwt:[20000,55000], w:6 },
+  { l:"lehavre",    d:"alexandria", c:"wheat",   rate:17.90, dwt:[20000,62000], w:5 },
+  { l:"algeciras",  d:"livorno",    c:"cement",  rate:12.39, dwt:[20000,45000], w:4 },
+  { l:"alexandria", d:"aliaga",     c:"urea",    rate:9.26, dwt:[20000,55000], w:4 },
+  { l:"philadelphia",d:"rotterdam", c:"scrap",   rate:18.83, dwt:[25000,62000], w:5 },
+  { l:"losangeles", d:"qingdao",    c:"scrap",   rate:39.65, dwt:[45000,85000], w:5 },
+  { l:"laemchabang",d:"mumbai",     c:"gypsum",  rate:15.12, dwt:[25000,62000], w:4 },
+  { l:"immingham",  d:"aliaga",     c:"scrap",   rate:16.78, dwt:[20000,55000], w:4 },
+  { l:"ghent",      d:"casablanca", c:"wheat",   rate:11.11, dwt:[20000,50000], w:4 },
 ];
 
 /* ----------------------------------------------------------------------------
@@ -1158,6 +1181,9 @@ const WET_ROUTES = [
   { l:"sikka", d:"jebelali", c:"gasoil", flat:8.06,  dwt:[40000,80000],   w:6 },
   { l:"augusta", d:"lehavre", c:"gasoil", flat:14.87, dwt:[40000,80000],   w:5 },
   { l:"singapore", d:"sydneye_x", c:"gasoil",  flat:24.0, dwt:[40000,80000],   w:0 },
+  { l:"jebelali", d:"mumbai", c:"gasoil", flat:10.13, dwt:[40000,80000],   w:6 },
+  { l:"fujairah", d:"vizag", c:"fueloil", flat:12.46, dwt:[80000,180000],  w:5 },
+  { l:"sodegaura", d:"singapore", c:"naphtha", flat:15.66, dwt:[40000,80000],   w:5 },
 ].filter(r=>PORTS[r.l] && PORTS[r.d]);
 
 const GAS_ROUTES = [
@@ -2885,6 +2911,9 @@ const ROUTE_POOL = [
   ...PROJ_ROUTES.map(r=>({ ...r, kind:"proj" })),
 ].filter(r=>PORTS[r.l] && PORTS[r.d]);
 
+/* Cargo that needs lifting gear rather than a conveyor, grab, hose or ramp. */
+const NEEDS_GEAR = new Set(["steel","scrap","forest","proj"]);
+
 /* Can this class lift this trade at all? Size band, gear, ice, cargo grade and
    the physical ability to get alongside. */
 function eligible(cls, r){
@@ -2900,8 +2929,14 @@ function eligible(cls, r){
   if(r.kind === "proj" && cls.seg !== "project") return false;
   const lp = PORTS[r.l], dp = PORTS[r.d];
   if(lp.bunkerOnly || dp.bunkerOnly) return false;
-  if(!lp.shoreGear && !cls.geared) return false;
-  if(!dp.shoreGear && !cls.geared) return false;
+  // Ship's gear only matters for cargo that has to be lifted. A crude terminal
+  // works through hoses and an ore berth through a shiploader — which is exactly
+  // why Capesizes, VLCCs and LNG carriers are all gearless. Requiring cranes at
+  // every crane-less port shut those segments out of their own trades entirely.
+  if(NEEDS_GEAR.has(CARGOES[r.c].grp)){
+    if(!lp.shoreGear && !cls.geared) return false;
+    if(!dp.shoreGear && !cls.geared) return false;
+  }
   if(r.iceReq && (cls.ice||0) < r.iceReq) return false;
   if(r.ice    && (cls.ice||0) < r.ice) return false;
   // A ship that cannot even part-load at the berth has no business bidding.
@@ -3182,6 +3217,7 @@ function settleVoyage(sh, quiet){
   if(CARGOES[v.fx.cargo].wet) sh.lastGrade = CARGOES[v.fx.cargo].grade;
   S.voyagesDone++;
   updateCii(sh);
+  ensureBoard(sh);          // she is open now, so she has offers now
 
   const entry = {
     day: Math.round(S.day), shipId: sh.id, shipName: sh.name, cls: sh.cls,
@@ -3226,6 +3262,7 @@ function maybeAutoEmploy(sh, quiet){
 function endEmployment(sh, quiet){
   const t = sh.emp.type;
   sh.emp = { type:"spot" };
+  ensureBoard(sh);
   if(!quiet){
     toast(`<b>${esc(sh.name)}</b> redelivered from ${t === "tc" ? "time charter" : t === "bb" ? "bareboat" : "contract"}.`, "warn");
     autoPause(`${sh.name} redelivered and open`);
@@ -3310,75 +3347,119 @@ function rolloverCii(){
 /* ==========================================================================
    THE FIXTURE BOARD — spot, time charter, COA and day-rate work
    ========================================================================= */
-function refreshBoard(force){
-  S.fixturesStamp = S.day;
-  const rnd = MKT.rnd;
-  const spot = [], tcs = [], coasO = [], dayO = [];
-  const idle = S.ships.filter(s => s.status === "idle" && (!s.emp || s.emp.type === "spot"));
-  const anchors = idle.length ? idle : [];
-  const tutorial = S.voyagesDone < 2;
+/* Candidate trades for one ship. `relax` widens the acceptable ballast, which is
+   how a genuinely awkward position produces bad options rather than none. */
+function candidatesFor(sh, relax){
+  const cls = shipCls(sh), out = [];
   const month = gDate().getUTCMonth();
+  const tutorial = S.voyagesDone < 2;
+  for(const r of ROUTE_POOL){
+    if(!eligible(cls, r)) continue;
+    const bal = seaRoute(sh.port, r.l);
+    const ladNm = seaRoute(r.l, r.d).nm;
+    // Ballast tolerance scales with the voyage itself: nobody ballasts 6,000
+    // miles for a 1,000-mile cargo, but a VLCC returning to the Gulf empty does
+    // exactly that every voyage. A flat cap strands the long-haul segments.
+    const cap = clamp(ladNm*1.6, 1800, 9000) * relax;
+    if(bal.nm > cap) continue;
+    if(tutorial && (bal.nm > 700 || ladNm > 2000)) continue;
+    if(r.nsr && !NSR_MONTHS[month]) continue;
+    out.push({ r, bal:bal.nm, w: r.w * Math.exp(-bal.nm/Math.max(2200, ladNm*0.8)) });
+  }
+  return out;
+}
 
-  for(const sh of anchors){
-    const cls = shipCls(sh);
-    // --- spot ---------------------------------------------------------
-    const cand = [];
-    for(const r of ROUTE_POOL){
-      if(!eligible(cls, r)) continue;
-      const bal = seaRoute(sh.port, r.l);
-      const ladNm = seaRoute(r.l, r.d).nm;
-      if(bal.nm > 3000) continue;
-      if(bal.nm > 1500 && bal.nm > ladNm*2.2) continue;
-      if(tutorial && (bal.nm > 700 || ladNm > 2000)) continue;
-      if(r.nsr && !NSR_MONTHS[month]) continue;
-      cand.push({ r, bal:bal.nm, w: r.w * Math.exp(-bal.nm/2200) });
+/* Top a ship's board up to a full set of offers. Widens the search until it
+   finds enough: an owner in a thin port is short of GOOD options, never short of
+   a broker willing to quote her something. */
+function topUpBoard(sh, target){
+  const rnd = MKT.rnd, cls0 = shipCls(sh);
+  const have = S.fixtures.filter(f=>f.forShip===sh.id);
+  const want = target ?? (3 + Math.floor(rnd()*3));
+  if(have.length >= want) return;
+  const taken = new Set(have.map(f=>f.load+">"+f.disch+">"+f.cargo));
+  let cand = [];
+  for(const relax of [1, 2, 4, 999]){
+    cand = candidatesFor(sh, relax);
+    if(cand.length >= want - have.length) break;
+  }
+  if(!cand.length) return;
+  const total = cand.reduce((a,c)=>a+c.w, 0);
+  for(let k=0; k<want*9 && S.fixtures.filter(f=>f.forShip===sh.id).length<want; k++){
+    let x = rnd()*total, pick = cand[0];
+    for(const c of cand){ x -= c.w; if(x<=0){ pick=c; break; } }
+    const key = pick.r.l+">"+pick.r.d+">"+pick.r.c;
+    if(taken.has(key)) continue;
+    taken.add(key);
+    const fx = mkFixture(pick.r, sh, rnd, {});
+    // No broker quotes a voyage that loses money before it sails. Keep one only
+    // if she would otherwise have nothing at all to look at.
+    const onBoard = S.fixtures.filter(f=>f.forShip===sh.id).length;
+    if(onBoard >= 2){
+      const e = voyageEstimate(sh, fx, cls0.designSpeed-1.5, MKT, estOpts(sh));
+      if(!(e.tce > 0)) continue;
     }
-    if(cand.length){
-      const total = cand.reduce((a,c)=>a+c.w,0);
-      const want = clamp(3 + Math.floor(rnd()*3), 3, 5);
-      const taken = new Set();
-      for(let k=0;k<want*7 && taken.size<want;k++){
-        let x = rnd()*total, pick = cand[0];
-        for(const c of cand){ x -= c.w; if(x<=0){ pick=c; break; } }
-        const key = pick.r.l+">"+pick.r.d+">"+pick.r.c;
-        if(taken.has(key)) continue;
-        taken.add(key);
-        spot.push(mkFixture(pick.r, sh, rnd, {}));
-      }
-    }
-    // --- time charter -------------------------------------------------
-    if(has2("timecharter")){
-      const n = 2 + (rnd()<0.5?1:0);
-      const durs = CFG.TC.durations.slice().sort(()=>rnd()-0.5).slice(0,n);
-      for(const d of durs){
-        const rate = tcHire(sh.cls, MKT, d, sh);
-        tcs.push({ id:"t"+(S.nextId++), forShip:sh.id, kind:"tc", days:d,
-                   rate: Math.round(rate*(0.97+rnd()*0.06)),
-                   charterer: pickCharterer(rnd), port: sh.port });
-      }
-    }
-    if(has2("bareboat")){
-      const yrs = [3,5,7][Math.floor(rnd()*3)];
-      tcs.push({ id:"b"+(S.nextId++), forShip:sh.id, kind:"bb", days:yrs*365,
-                 rate: Math.round(bbHire(sh.cls, MKT)*(0.97+rnd()*0.06)),
-                 charterer: pickCharterer(rnd), port: sh.port });
-    }
-    // --- day-rate contracts (offshore, aquaculture) --------------------
-    if(cls.dayrateOnly){
-      for(const c of DAYRATE_CONTRACTS){
-        if(!c.cls.includes(sh.cls)) continue;
-        if(c.ice && (cls.ice||0) < c.ice) continue;
-        if(NORWAY_RESERVED.has(c.base) && !["nor","nis"].includes(sh.flag)) continue;
-        if(seaRoute(sh.port, c.base).nm > 4000) continue;
-        const days = Math.round(lerp(c.days[0], c.days[1], rnd()));
-        const base = DAYRATE_BASE[sh.cls] || 25000;
-        dayO.push({ id:"d"+(S.nextId++), forShip:sh.id, kind:"dayrate", days,
-                    rate: Math.round(base*c.rate*(MKT.idx[cls.idx].v/100)*(0.96+rnd()*0.08)),
-                    name:c.name, base:c.base, war:c.war });
-      }
+    S.fixtures.push(fx);
+  }
+}
+
+/* Charter-out and contract offers for one ship. */
+function offersForShip(sh){
+  const rnd = MKT.rnd, cls = shipCls(sh);
+  S.tcOffers = (S.tcOffers||[]).filter(o=>o.forShip!==sh.id);
+  S.dayOffers = (S.dayOffers||[]).filter(o=>o.forShip!==sh.id);
+  if(has2("timecharter")){
+    const durs = CFG.TC.durations.slice().sort(()=>rnd()-0.5).slice(0, 2 + (rnd()<0.5?1:0));
+    for(const d of durs)
+      S.tcOffers.push({ id:"t"+(S.nextId++), forShip:sh.id, kind:"tc", days:d,
+        rate: Math.round(tcHire(sh.cls, MKT, d, sh)*(0.97+rnd()*0.06)),
+        charterer: pickCharterer(rnd), port: sh.port });
+  }
+  if(has2("bareboat")){
+    const yrs = [3,5,7][Math.floor(rnd()*3)];
+    S.tcOffers.push({ id:"b"+(S.nextId++), forShip:sh.id, kind:"bb", days:yrs*365,
+      rate: Math.round(bbHire(sh.cls, MKT)*(0.97+rnd()*0.06)),
+      charterer: pickCharterer(rnd), port: sh.port });
+  }
+  if(cls.dayrateOnly){
+    for(const c of DAYRATE_CONTRACTS){
+      if(!c.cls.includes(sh.cls)) continue;
+      if(c.ice && (cls.ice||0) < c.ice) continue;
+      if(NORWAY_RESERVED.has(c.base) && !["nor","nis"].includes(sh.flag)) continue;
+      if(seaRoute(sh.port, c.base).nm > 4000) continue;
+      const days = Math.round(lerp(c.days[0], c.days[1], rnd()));
+      S.dayOffers.push({ id:"d"+(S.nextId++), forShip:sh.id, kind:"dayrate", days,
+        rate: Math.round((DAYRATE_BASE[sh.cls]||25000)*c.rate*(MKT.idx[cls.idx].v/100)*(0.96+rnd()*0.08)),
+        name:c.name, base:c.base, war:c.war });
     }
   }
-  // --- COA offers: fleet-wide, not per ship --------------------------
+}
+
+/* Called the instant a ship becomes free. Before this existed the board was only
+   rebuilt on a timer, so a ship that discharged just after a refresh sat with an
+   empty board — and paid OPEX for every day of it. */
+function ensureBoard(sh){
+  if(!sh || sh.dd || sh.voyage) return;
+  if(sh.emp && sh.emp.type !== "spot") return;
+  topUpBoard(sh);
+  offersForShip(sh);
+}
+
+function refreshBoard(force){
+  S.fixturesStamp = S.day;
+  const idle = S.ships.filter(s => s.status === "idle" && !s.dd && (!s.emp || s.emp.type === "spot"));
+  const idleIds = new Set(idle.map(s=>s.id));
+  // Keep what the player may be part-way through reading; drop what has lapsed
+  // or belongs to a ship no longer open.
+  S.fixtures = (S.fixtures||[]).filter(f =>
+    idleIds.has(f.forShip) && (S.day - (f.born ?? S.day)) < CFG.FIXTURE_MAX_AGE);
+  S.tcOffers = (S.tcOffers||[]).filter(o=>idleIds.has(o.forShip));
+  S.dayOffers = (S.dayOffers||[]).filter(o=>idleIds.has(o.forShip));
+  for(const sh of idle) ensureBoard(sh);
+
+  // COA offers are fleet-wide, not per ship.
+  const rnd = MKT.rnd;
+  S.coaOffers = [];
   if(has2("coa") && S.coas.length < 3){
     for(let i=0;i<2;i++){
       const pool = ROUTE_POOL.filter(r => S.ships.some(sh=>eligible(shipCls(sh), r)));
@@ -3386,13 +3467,11 @@ function refreshBoard(force){
       const r = pool[Math.floor(rnd()*pool.length)];
       const lifts = CFG.COA.lifts[Math.floor(rnd()*CFG.COA.lifts.length)];
       const period = CFG.COA.periodDays[Math.floor(rnd()*CFG.COA.periodDays.length)];
-      const idx = routeIdx(r);
-      coasO.push({ id:"c"+(S.nextId++), kind:"coa", route:r, lifts, period,
-                   rate: (r.flat ?? r.rate) * (MKT.idx[idx].v/100) * CFG.COA.discount,
-                   charterer: pickCharterer(rnd) });
+      S.coaOffers.push({ id:"c"+(S.nextId++), kind:"coa", route:r, lifts, period,
+        rate: (r.flat ?? r.rate) * (MKT.idx[routeIdx(r)].v/100) * CFG.COA.discount,
+        charterer: pickCharterer(rnd) });
     }
   }
-  S.fixtures = spot; S.tcOffers = tcs; S.coaOffers = coasO; S.dayOffers = dayO;
 }
 const CHARTERERS = ["Cargill","Bunge","Louis Dreyfus","Trafigura","Vitol","Glencore",
                     "Oldendorff","Klaveness","Mercuria","ADNOC Trading","Rio Tinto","Vale"];
@@ -3412,7 +3491,7 @@ function mkFixture(r, sh, rnd, extra){
   // Oil majors vet before they load, and they are most of the good wet business.
   const vetGate = r.kind === "wet" && rnd() < 0.6;
   return Object.assign({
-    id:"f"+(S.nextId++), forShip: sh.id, kind:r.kind,
+    id:"f"+(S.nextId++), forShip: sh.id, kind:r.kind, born: S.day,
     load:r.l, disch:r.d, cargo:r.c, qty, rate,
     ws: r.ws ? Math.round((MKT.idx[idx].v)*(1+jitter*CFG.FIXTURE_NOISE)) : null,
     flat: r.flat ?? null,
@@ -4271,8 +4350,8 @@ function fixtureCard(sh, f, e){
       <div class="xs mut2">${days1(e.days)}</div></div></div>
     <div class="row" style="margin-top:9px;gap:5px;flex-wrap:wrap">${chips.join("")}
       <button class="btn pri sm" style="margin-left:auto" onclick="event.stopPropagation();doFix(${sh.id},'${f.id}')">Fix</button></div>
-    ${has("ballast")?`<div class="xs mut2" style="margin-top:6px">Onward cargo from ${esc(dp.name)}: ${
-      liq>0.75?"strong":liq>0.5?"moderate":liq>0.3?"thin":'<span class="haz">very thin</span>'}</div>`:""}
+    <div class="xs mut2" style="margin-top:6px">Onward cargo from ${esc(dp.name)}: ${
+      liq>0.75?"strong":liq>0.5?"moderate":liq>0.3?"thin":'<span class="haz">very thin</span>'}</div>
   </div>`;
 }
 

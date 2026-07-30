@@ -814,3 +814,71 @@ point of a bareboat). Time-charter and COA ships run shadow voyages so position,
 wear and CII stay real while the charterer makes the routing decisions. Liner
 services accrue against a rotation model rather than tracking each box. The
 seven items flagged in §5 as too fiddly to be fun remain out.
+
+---
+
+## Appendix D — Utilisation fix
+
+Player report: money bleeding away because there was rarely anything on offer at
+the discharge port, leaving ships idle for days or weeks.
+
+Measured before touching anything, playing a single Handysize optimally for a
+year: **91.7% utilisation, 30.3 idle days — and all 30.3 of them with an empty
+board.** Not one idle day was a rate the player had declined. Three distinct
+faults, none of them a tuning problem:
+
+**1. Sixteen discharge ports had no outbound cargo at all.** Casablanca received
+five inbound trades and offered nothing back, and it is one of the commonest
+Handysize discharge ports in the game. Unrealistic as well as unfair — Morocco is
+the world's largest phosphate exporter. Added 18 dry and 3 wet backhauls that
+exist in life and were simply missing: Casablanca phosphate and DAP, Turkish and
+Italian steel, German scrap into Turkey (the largest scrap trade in the world),
+French grain to North Africa, US east and west coast scrap exports, Gulf products
+out of Jebel Ali and Fujairah. Dead-end ports: 16 → 2, and both remaining ones
+are correct (an LNG carrier discharging Zeebrugge ballasts home — that *is* the
+trade; Stavanger is a day-rate offshore base).
+
+**2. The board was only rebuilt on a 6-day timer.** A ship discharging just after
+a refresh sat with literally nothing to accept, paying OPEX for every day of it.
+The board is now generated the instant a ship becomes free (`ensureBoard`, called
+from voyage settlement and charter redelivery), tops up rather than being wiped —
+so an offer the player is part-way through reading does not vanish — and offers
+lapse individually after 12 days.
+
+**3. Ship's gear was required at every port without shore cranes.** But a crude
+terminal loads through hoses and an ore berth through a shiploader, which is
+precisely why Capesizes, VLCCs and LNG carriers are all gearless. The check shut
+those segments out of their own trades entirely — a VLCC at Rotterdam, a Capesize
+at Qingdao and an LNG carrier at Sodegaura each had **zero** offers. Gear is now
+required only for cargo that must be lifted (steel, scrap, forest products,
+project).
+
+Also fixed: a flat 3,000 nm ballast cap, which stranded every long-haul segment
+(a VLCC discharging Rotterdam *must* ballast ~6,400 nm back to the Gulf). The cap
+now scales with the voyage — `clamp(ladenNm × 1.6, 1800, 9000)`.
+
+Two supporting changes: the board search widens progressively at a genuinely
+awkward port, so a thin position yields *bad* options rather than none — with
+negative-TCE quotes suppressed unless the board would otherwise be bare — and the
+onward-liquidity line on each fixture card now shows from the first voyage rather
+than waiting for the ballast unlock, turning an invisible trap into a visible
+decision.
+
+### After
+
+| | Before | After |
+|---|---:|---:|
+| Utilisation, played optimally | 91.7% | **100%** |
+| Idle days per year | 30.3 | **0** |
+| Idle days with an empty board | 30.3 | **0** |
+| Worst wait between fixtures | 5.5 d | **0 d** |
+| Voyages per year | 13 | 14–16 |
+| Cash after one year | $3.94M | $3.19M |
+| Lowest cash in the first 60 days | — | $359,590 |
+
+Cash after a year is slightly *lower*, and that is correct: forced waiting used
+to be followed by an unusually good board, so the old figure flattered a player
+who had no choice in the matter. Utilisation is now the player's decision — hold
+out for a better rate and idle deliberately, or take the workmanlike cargo. The
+first 60 days still dip to $359k, so the opening stays tight without ever being
+dead time.
