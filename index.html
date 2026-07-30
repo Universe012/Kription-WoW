@@ -308,7 +308,7 @@ const CFG = {
 
   /* --- time -------------------------------------------------------------- */
   SEC_PER_DAY: 5,          // 1 game day = 5 real seconds at 1x
-  SPEEDS: [1, 2, 4, 8],
+  SPEEDS: [1, 2, 4, 24],
   START_EPOCH: Date.UTC(2026, 0, 6),   // Tue 6 Jan 2026
   MAX_STEP_DAYS: 0.5,      // sim integration granularity
 
@@ -4023,7 +4023,7 @@ function rollEvents(dt){
   if(!ev) return;
   S.eventStamp = S.day;
   if(ev.psc){ maybePsc(sh, false); return; }
-  S.events.push({ evId:ev.id, shipId:sh.id, day:S.day, id:"E"+(S.nextId++) });
+  S.events.push({ evId:ev.id, shipId:sh.id, day:S.day, wall:Date.now(), id:"E"+(S.nextId++) });
   autoPause(`${sh.name} — ${ev.title.toLowerCase()}`);
   dirty();
 }
@@ -4100,7 +4100,11 @@ function applyEventFx(sh, fx){
    three days, so a large fleet never stalls waiting on the player. */
 function autoResolveStale(){
   for(const q of S.events.slice()){
-    if(S.day - q.day > 3){
+    if(q.wall === undefined) q.wall = Date.now();
+    // Both clocks must run out: three game days AND ten real seconds. Without the
+    // second test, high time compression would resolve decisions before the
+    // player could read them.
+    if(S.day - q.day > 3 && Date.now() - q.wall > 10000){
       const ev = EVENTS.find(e=>e.id===q.evId);
       if(ev && ev.opts) resolveEvent(q.id, 0);
       else S.events = S.events.filter(e=>e.id!==q.id);
@@ -5849,7 +5853,7 @@ function dbgEvent(){
   const sh = S.ships[Math.floor(MKT.rnd()*S.ships.length)]; if(!sh) return;
   const ev = pickEvent(sh); if(!ev){ toast("No event fits this ship's situation.","warn"); return; }
   if(ev.psc){ maybePsc(sh,false); hideSheet(); return; }
-  S.events.push({ evId:ev.id, shipId:sh.id, day:S.day, id:"E"+(S.nextId++) });
+  S.events.push({ evId:ev.id, shipId:sh.id, day:S.day, wall:Date.now(), id:"E"+(S.nextId++) });
   hideSheet(); S.tab="fleet"; dirty();
 }
 function dbgSurvey(){

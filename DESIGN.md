@@ -1192,3 +1192,30 @@ If the tension is wanted back later without returning to $650k, the levers in
 order of bluntness are: raise the opening mortgage LTV (more debt service, same
 cash), start the freight market in a downturn rather than at index 112, or make
 the opening ship older so her first special survey falls sooner.
+
+---
+
+## Appendix J — Top speed raised to 24×
+
+`CFG.SPEEDS: [1, 2, 4, 8] → [1, 2, 4, 24]`. The clock ladder is now
+1× → 2× → 4× → 24× → pause.
+
+At 5 real seconds per game day, 24× runs **4.8 game days per real second** — a
+year of game time in 76 seconds. Measured throughput holds at the target with a
+20-ship fleet all at sea (4.80 days/s against a 4.80 target), so the tick is not
+the bottleneck; the sim integrates in ≤0.5-day chunks regardless of clock speed,
+so results are identical at any setting.
+
+An 11.2-day Baltic voyage takes 56 s at 1× and **2.3 s at 24×**.
+
+### One fix this forced
+
+Event decisions auto-resolve to the first, most conservative option if left
+unanswered — previously after 3 game days, which at 24× is 0.6 real seconds. A
+player with auto-pause switched off would never have seen the decision before it
+answered itself. The timer now requires **both** 3 game days and 10 real seconds,
+so time compression cannot outrun the reader.
+
+Auto-pause (Appendix C) stops the clock on events anyway, so this only matters
+for players who have turned it off — but it would have been a genuine trap for
+exactly the players most likely to run at 24×.
