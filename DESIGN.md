@@ -338,6 +338,7 @@ System font stack. No gradients, no shine, no coin showers. It should read as an
 | Abstraction | Why |
 |---|---|
 | Crew as a wage tier (Filipino/Indian/Ukrainian/Norwegian officers × rank mix), not individuals | Individual crew management is a different game. The wage differential is the strategic content, and that survives. |
+| Liner services built from ~10 preset trade lanes with editable rotations, rather than free-form port-by-port network design | Free-form network design on a phone is unplayable. Presets carry the geography; the player controls the levers that matter — speed, string size, buffer, contract mix, slot sales. See §5b. |
 | Charter party as 3 term templates (owner-friendly / balanced / charterer-friendly) rather than clause negotiation | Clause-by-clause negotiation is unplayable on a phone. Templates preserve the trade-off. |
 | Cargo intake = `min(DWT allowance at draft, cubic capacity ÷ stowage factor)`; no stability or stress calculation | Loading computers are real engineering. The *constraint* is what the player needs — and grain cubic vs ore deadweight limits still bite. |
 | Weather as per-region-per-season distributions on speed loss and consumption, not routed forecasts | Weather routing as a real decision would need a real met model. Seasonal North Atlantic and monsoon penalties give the same behaviour. |
@@ -361,6 +362,112 @@ System font stack. No gradients, no shine, no coin showers. It should read as an
 7. **EU ETS/FuelEU at Handysize scale** costs ~$17k on a $137k voyage — real, but it's a lot of UI
    for a rounding error early on. I fold both into one **Carbon** line that expands, and it only
    appears once the player is trading into the EU with more than two ships.
+
+---
+
+## 5b. Liner services (container operating)
+
+Per your call, containers are a **full liner service**, not just an asset play. Chartering boxships
+out to AI operators stays available as the low-risk path, so both routes to the segment exist — but
+the player can build and run their own network.
+
+The design principle: a liner service is a **product the player creates and maintains**, not a
+fixture they accept. It's the only part of the game with recurring rather than voyage-based revenue,
+and it deserves to feel structurally different.
+
+### The Service object
+
+A **Service** is a closed loop with a fixed frequency, maintained by a **string** of vessels:
+
+```
+AE7  Asia – North Europe                          weekly
+Shanghai → Ningbo → Yantian → Singapore → Suez →
+Rotterdam → Hamburg → Antwerp → Suez → Singapore → Shanghai
+11 × Neopanamax 14,000 TEU · 16.0 kn · 3d buffer
+```
+
+**The central equation, and the reason this segment is worth building:**
+
+```
+string size = ceil( round-voyage days / frequency days ) + buffer ships
+```
+
+Asia–North Europe round trip is ~21,000 nm plus ~10 port calls at ~1.4 days and two canal transits.
+That gives:
+
+| Service speed | Sea days | + port/canal | Round voyage | Ships for weekly | Burn per ship | **Fleet burn mt/day** |
+|---:|---:|---:|---:|---:|---:|---:|
+| 18.0 kn | 48.6 | 16 | 64.6 | 10 | 130 | **1,300** |
+| 16.0 kn | 54.7 | 16 | 70.7 | 11 | 90 | **990** |
+| 14.0 kn | 62.5 | 16 | 78.5 | 12 | 62 | **744** |
+
+Slowing the service **requires more ships** to hold weekly frequency, but cuts total fuel burn
+sharply. This is not a designed mechanic — it's arithmetic, and it is precisely why the industry
+slow-steamed its way through 2009 and absorbed enormous surplus capacity doing it. A player who
+works this out has learned something true about the industry. It also makes charter-in demand
+endogenous: when bunkers spike, the player *wants* more ships, which bids up the TC market the
+player also participates in as an owner.
+
+### Revenue
+
+- **Freight per TEU per port-pair**, from the lane's container spot index, adjusted by the player's
+  **schedule reliability** score. Unreliable services can only sell at a discount.
+- **Directional imbalance is the defining feature.** Headhaul (Asia→Europe) runs 90–98% full;
+  backhaul runs 55–65% full at roughly 40% of the headhaul rate. Any model that treats a loop as
+  symmetrical is wrong, and the asymmetry is where the strategy lives.
+- **Empty repositioning** falls straight out of the imbalance: boxes accumulate at the wrong end.
+  ~$300–500/TEU to move them back, or refuse marginal backhaul cargo and eat the equipment
+  shortage. Industry-wide roughly 20–25% of all moves are empties.
+- **Reefer plugs** are limited, high-yield slots — capex to add, strong margin, seasonal demand.
+- **Slot sharing / VSA:** sell slots on your service to other operators (steady, low-risk income
+  that de-risks a thin lane), or buy slots on theirs to offer a lane you don't serve. This is the
+  alliance mechanic in miniature and it's the right amount of it.
+
+### Costs
+
+Terminal handling is the line that surprises people, and it should surprise the player too:
+
+| Cost | Basis |
+|---|---|
+| Vessel cost | Owned (OPEX + debt) or **chartered in** at TC hire — a real strategic choice |
+| Bunkers | At service speed, with ECA legs on the North Europe and North America ends |
+| **Terminal handling (THC)** | $150–250 per move by port. A 14,000 TEU ship working 6,000 boxes at Rotterdam ≈ **$1.1M in THC alone** |
+| Port DA + canal | TEU-based tariffs, ~$95/TEU laden through Suez |
+| Empty repositioning | Per TEU, driven by the imbalance above |
+| Inland haulage | Per-TEU abstraction where the O–D pair is inland rather than port-to-port |
+| **EU ETS** | This is where carbon genuinely bites — full scope on intra-EU legs, 50% on the Asia inbound, across ~1,000 mt/day of fleet burn |
+
+### Schedule reliability
+
+Congestion, weather and port productivity create delays, and **delay propagates around the loop** —
+a ship late out of Yantian is late into Rotterdam and late back to Shanghai. **Buffer days** are the
+defence: build slack into the rotation (costs a ship in the string) or run tight and miss schedules.
+Reliability drives contract renewals and rate premiums. Real-world schedule reliability has ranged
+from ~30% to ~85%, so there's enormous room for the player to be good or bad at this.
+
+### Contracts vs spot
+
+Annual contracts with BCOs lock in 50–70% of slots at a fixed rate negotiated once a year; the
+remainder sells at index. Structurally the same spot-versus-fixed tension as the bulk side, which
+is a pleasing consistency rather than a new concept to teach.
+
+### Making this work on a phone
+
+Services live inside **Charter** as a fourth segmented option, not a sixth tab. Each service is one
+card: `AE7 Asia–NEur · 11× Neopanamax · weekly · 89% util · +$4.2M/mo`. Tapping opens the rotation,
+string, speed slider (with live string-size implication), utilisation by leg, and reliability.
+
+Service *creation* is the one genuinely complex flow in the whole game, so it's a guided sequence:
+pick a lane from ~10 presets → pick frequency → **the game computes required string size at your
+chosen speed** → assign ships (own or charter in) → set contract/spot mix → launch. The presets
+carry the geography; the player carries the decisions.
+
+**Onboarding matters here.** The segment opens with a **2-ship regional feeder** service
+(Singapore → Jakarta → Surabaya, weekly, 2× 1,700 TEU) so the player learns string sizing,
+utilisation and reliability at trivial scale before committing 11 ships and $1B to Asia–Europe.
+
+This is a substantial addition — it becomes **Phase 6**, and it pushes the single-file estimate to
+roughly 450–600 KB. Flagged in open question 8.
 
 ---
 
@@ -421,7 +528,8 @@ any event.
 | **2** | Bunkers, speed optimisation, ECA, port DAs, laytime/demurrage, full voyage breakdown sheet, Market tab with indices and charts. |
 | **3** | Time charter / bareboat / COA, S&P and Shipyard, asset value cycle, debt and covenants, bankruptcy, Company tab. |
 | **4** | Compliance: drydock/surveys, PSC, flag/class/registry incl. NIS/NOR and tonnage tax, CII, EU ETS, FuelEU, vetting. Tankers + Worldscale. |
-| **5** | Containers, specialised (LNG/VLGC/PCTC/reefer/heavy-lift/PSV/AHTS/wellboat), canals and seasonality, war risk, events, FFA and bunker hedging, glossary, debug panel, polish. |
+| **5** | Specialised tonnage (LNG/VLGC/PCTC/reefer/heavy-lift/PSV/AHTS/wellboat), canals and seasonality, war risk, events, FFA and bunker hedging, NIS/NOR and tonnage tax, glossary, debug panel, polish. Boxships chartered out to AI operators. |
+| **6** | **Full liner service** (§5b): services, strings, rotations, string sizing vs service speed, headhaul/backhaul imbalance, empty repositioning, THC, schedule reliability and buffers, BCO contracts vs spot, slot sharing/VSA, charter-in. Feeder tutorial service first. |
 
 ---
 
@@ -459,24 +567,38 @@ penalty formula, commission structure, survey intervals, ECA boundaries.
 
 ## 9. Open questions
 
-1. **Time compression.** I've assumed 1 game day = 5 real seconds, giving a 47-second tutorial
-   voyage and ~10 game years per 5-hour session — enough for two full cycles. Slower makes the
-   cycle a story you live rather than watch, but a 5-hour session would only cover one boom.
-2. **Segment rollout.** Dry bulk complete first, then tankers, then container/specialised (my plan)
-   — or all segments present but thinner from Phase 1?
-3. **Containers.** Charter-out asset play (my recommendation — it's what owners do, and liner
-   operations is a whole second game), or do you actually want to run a liner service?
-4. **The Norwegian angle.** NIS/NOR and tonnage tax as a mid-game strategic unlock, or should the
-   player start as a Norwegian owner with that as the framing from minute one? Same question for
-   wellboats and offshore — background flavour, or a first-class segment?
-5. **Setting.** Contemporary (2026 rates, Red Sea rerouting live, EU ETS at 100%), or start in a
-   named historical year — 2002, pre-supercycle — so the boom is a recognisable arc?
-6. **Bankruptcy.** Hard game-over with a run summary and restart, or a restructuring path (hand
-   equity to the bank, continue smaller) so a 5-hour run isn't deleted?
-7. **Difficulty.** One tuned curve, or an explicit easy/realistic/brutal switch at new game?
-8. **File size.** A faithful build with ~55 ports, ~24 vessel classes and 5 segments lands around
-   250–400 KB in one HTML file. Confirm that's acceptable versus trimming scope.
+### Resolved
+
+1. **Time compression** — 1 game day = **5 real seconds**. 47-second tutorial voyage, ~10 game years
+   per 5-hour session, two full cycles. Player gets 1×/2×/4×/8× and pause, defaulting to 1×.
+2. **Containers** — **full liner service**, designed in §5b. Becomes Phase 6. Charter-out to AI
+   operators remains as the low-risk alternative path into the segment.
+3. **Norwegian angle** — **mid-game strategic unlock.** Generic start; registry choice (NIS/NOR/
+   Panama/Liberia/Marshall Islands) and tonnage tax become a real lever at stage 4–5. Wellboats and
+   PSV/AHTS are a proper late specialised segment, not the framing.
+4. **Bankruptcy** — **restructuring path.** Covenant breach (LTV > 80% or cash below minimum
+   liquidity undertaking) → 60-day cure period → if unresolved, the bank enforces: fleet goes, player
+   continues with one ship and a wrecked credit rating (higher margins, lower max LTV, some
+   charterers refuse them). Real consequence, run survives.
+
+### Assumed unless you say otherwise
+
+5. **Segment rollout** — dry bulk complete first (Phases 1–3), then compliance and tankers
+   (Phase 4), then specialised (Phase 5), then liner (Phase 6). Each phase ends playable. The
+   alternative — all segments present but thin from the start — would make Phase 1 shallow
+   everywhere instead of complete somewhere, so I'd rather go deep first.
+6. **Setting** — **contemporary**, starting 2026. Red Sea rerouting live as a market regime,
+   EU ETS at 100% phase-in, ECA including the Med. Reason: every number in §2 is calibrated to
+   roughly-now, so a historical start would mean recalibrating the whole cost base to a different
+   decade and I'd rather spend that effort on the model. Say the word if you want a 2002
+   pre-supercycle start — the arc is genuinely better, it's just a different tuning pass.
+7. **Difficulty** — one tuned curve, no switch. The restructuring path already softens the failure
+   state, and a difficulty selector tends to mean two curves tuned badly instead of one tuned well.
+8. **File size** — with the liner service in, one HTML file lands around **450–600 KB**. That's
+   fine for load performance (it's text, gzips to ~80 KB, no assets) but it is a big single file to
+   navigate. Mitigated by the strict `§CONSTANTS → §MODEL → §STATE → §SIM → §UI → §BOOT` layout.
+   Flag it now if you'd rather trim scope than carry the size.
 
 ---
 
-*Awaiting approval before implementation. Nothing below Phase 0 is built yet.*
+*Awaiting approval before implementation. Nothing is built yet.*
