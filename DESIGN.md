@@ -80,15 +80,17 @@ micromanage 20 ships, so you stop.
 
 | Item | Value |
 |---|---|
-| Cash | $650,000 |
+| Cash | $4,000,000 |
 | Vessel (2004 Handysize, 28,200 DWT) | $8,000,000 market |
 | Mortgage | $4,800,000 (60% LTV, SOFR+250 ≈ 7.0%, 12-yr straight-line amort.) |
 | Annual debt service | ~$736,000 (≈$2,016/day, front-loaded interest) |
 | Daily OPEX | $4,800 |
 | **Net equity** | **$3,850,000** |
-| Cash runway with no revenue | ~95 days |
+| Cash runway with no revenue | ~690 days |
 
-Deliberately tight. Two consecutive bad fixtures hurt; three plus a breakdown is fatal.
+Originally $650,000 — deliberately tight, on the theory that two bad fixtures should
+hurt. In play that proved punishing rather than tense, and was raised to $4,000,000
+at the player's request (Appendix I).
 
 ### 2.2 Worked voyage P&L — the tutorial fixture
 
@@ -1156,3 +1158,37 @@ to the player.
 targets — still comfortably above the 44 px floor and still one-handed — and the
 shore organisation is too central to bury inside Company. Noted as a deliberate
 departure rather than an oversight.
+
+---
+
+## Appendix I — Starting capital raised to $4,000,000
+
+Requested. `CFG.START_CASH: 650000 → 4000000`. Nothing else changed — the ship,
+the mortgage, the daily costs and every rate are untouched.
+
+| | Before | After |
+|---|---:|---:|
+| Cash | $650,000 | $4,000,000 |
+| Vessel (22-yr Handysize, scrap-floored) | $3,520,632 | $3,520,632 |
+| Mortgage | $2,185,172 | $2,185,172 |
+| **Net equity** | $1,985,460 | **$5,334,578** |
+| Fixed cost | $5,808/day | $5,808/day |
+| **Runway earning nothing** | **112 days** | **689 days** |
+
+Every fixture on the opening board is now fundable — working capital
+requirements run $54k–$123k against $4M of cash — so the "you cannot fund this
+voyage" path will effectively never fire at the start.
+
+**What this changes about the design.** §2.1 called the opening "profitable, not
+comfortable", and the first-hour tension came from a 112-day runway. That tension
+is now gone: a player can idle for nearly two years before the bank matters. The
+early game becomes about learning the systems rather than surviving them, and the
+first real pressure arrives at the first drydock or the first market downturn
+instead of the third fixture.
+
+That is a legitimate difficulty choice, not a mistake, and it was the player's
+call after several rounds where genuine bugs had been masquerading as difficulty.
+If the tension is wanted back later without returning to $650k, the levers in
+order of bluntness are: raise the opening mortgage LTV (more debt service, same
+cash), start the freight market in a downturn rather than at index 112, or make
+the opening ship older so her first special survey falls sooner.
