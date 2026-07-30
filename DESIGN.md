@@ -1018,3 +1018,65 @@ Rebuilt around endurance rather than tonnage:
 Monotonic. Equity $2.10M → $3.74M over 112 days. Stress-tested over 180 days
 across five seeds: no strategy goes bust, and skill still separates them —
 $3.74M equity reading TCE against $2.97M always taking the longest voyage.
+
+---
+
+## Appendix G — "Still bleeding money on a voyage"
+
+Measured a full voyage day by day, attributing every cash movement:
+
+```
+ballast       1 day    steady −$6,519/day
+loading       4 days   steady −$6,519/day   lump −$24,000 (load port DA)
+laden         4 days   steady −$6,519/day   lump +$298,928 (95% freight advance)
+discharging   5 days   steady −$6,519/day   lump −$36,000 (discharge port DA)
+```
+
+**There is no leak.** The rate under way is identical to the rate docked, and the
+lumps are all identified. The player's perception is nonetheless correct: OPEX and
+debt service never stop, so after the freight advance lands on day 6 they watch
+eight more days of steady outflow. On a 40-day voyage that is 34 days of visible
+drain on a voyage that is comfortably profitable.
+
+Two real faults surfaced in that $6,519, and one presentation gap.
+
+### 1. Age was charged to OPEX twice
+
+`opexDay()` already scales with age (+1.2%/yr over 10). A ship's starting hull
+condition is *also* derived from age (`1 − (age−8)×0.012`), and `accrueDaily`
+multiplied OPEX by `1 + (1−hull)×0.35`. So a 22-year Handysize in perfectly normal
+condition for her age paid a 5.9% "condition" penalty on top of the age slope she
+had already paid.
+
+The condition penalty is meant to price **neglect**, not age. It now measures the
+shortfall against an age-appropriate hull (`expectedHull(age)`), so a ship in
+normal order pays nothing and a hard-run one pays more than before (coefficient
+raised 0.35 → 0.6 now that it only captures neglect).
+
+### 2. The opening flag was Norway NIS
+
+Which costs +7% on OPEX for a tonnage-tax benefit worth nothing until profits are
+large — and contradicted this document's own resolved decision (§9.3: *generic
+start; registry becomes a real lever at stage 4–5*). Corrected to Marshall Islands
+with BV class. NIS remains available and is still the right answer later.
+
+Daily fixed charge on the opening ship: **$6,519 → $5,808, down 10.9%.**
+
+### 3. The estimate quietly flattered itself
+
+`voyageEstimate` computed OPEX without the condition multiplier that
+`accrueDaily` applied, so every quoted "Net contribution" was optimistic by ~6%.
+Both now call one shared `opexDayFull(cls, age, ship)`. Quoted $54,572 against
+charged $54,802 on a test voyage — agreement within 0.4%.
+
+### 4. The falling balance had no counterweight on screen
+
+While a ship is at sea the balance drops every single day and nothing told the
+player the voyage was winning. The Fleet card now carries the running result:
+
+`Riga → Ghent · 5.2d to go · +$74k`
+
+Not a softened cost — the other half of the ledger, shown continuously.
+
+Five consecutive contracts from the opening position now run $650,000 →
+$2,074,841, trough never below $604,577, equity $2.10M → $3.82M in 112 days.

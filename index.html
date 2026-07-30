@@ -1667,6 +1667,21 @@ function opexDay(cls, ageYears){
   return Math.round(cls.opexBase * (1 + CFG.OPEX_AGE_SLOPE * Math.max(0, ageYears-10)));
 }
 
+/* The hull condition a ship of this age would normally be in. */
+function expectedHull(ageYears){
+  return clamp(1 - Math.max(0, ageYears-8)*0.012, 0.55, 1);
+}
+
+/* OPEX as actually charged: age, flag and CONDITION.
+   The condition penalty is for neglect, not for age. opexDay already prices age
+   in, and hull condition starts degraded because of age — multiplying by raw
+   hull charged the owner twice for the same grey hair. Only the shortfall
+   against an age-appropriate hull is a penalty. */
+function opexDayFull(cls, ageYears, ship){
+  const neglect = ship ? clamp(expectedHull(ageYears) - (ship.hull ?? 1), 0, 1) : 0;
+  return opexDay(cls, ageYears) * ((ship && ship.flagMult) || 1) * (1 + neglect*0.6);
+}
+
 /* ==========================================================================
    CARBON
    ========================================================================= */
@@ -1907,7 +1922,8 @@ function voyageEstimate(ship, fx, speed, mkt, opts){
   const tce = days > 0 ? gvp/days : 0;
 
   const age = opts.year ? opts.year - ship.built : (ship.age ?? 15);
-  const opexDaily = ship.emp && ship.emp.type === "bb" ? 0 : opexDay(cls, age)*(ship.flagMult||1);
+  // Same figure the ship is actually charged, so the estimate cannot flatter.
+  const opexDaily = ship.emp && ship.emp.type === "bb" ? 0 : opexDayFull(cls, age, ship);
   const opex = opexDaily * days;
 
   // Working capital: everything you must fund out of your own pocket before the
@@ -2467,7 +2483,7 @@ function netPerDay(){
   for(const sh of S.ships){
     const cls = shipCls(sh);
     if(sh.voyage) n += sh.voyage.plan.tce;
-    n -= opexDay(cls, shipAge(sh));
+    n -= opexDayFull(cls, shipAge(sh), sh);
     if(sh.debt && sh.debt.principal>0)
       n -= sh.debt.principal*sh.debt.rate/365 + sh.debt.orig/sh.debt.termDays;
   }
@@ -3044,7 +3060,7 @@ function newGame(seed){
   const cfg = CFG.START_SHIP;
   const val = assetValue(cfg.cls, 2026 - cfg.built, MKT);
   const ship = mkShip(s, cfg.cls, cfg.name, cfg.built, cfg.port);
-  ship.flag = "nis"; ship.classSoc = "dnv";        // a Norwegian owner's default
+  ship.flag = "marshall"; ship.classSoc = "bv";    // generic start; NIS is a mid-game lever
   // She comes with bunkers aboard, weighted to the grade her home trade burns:
   // the Baltic and North Sea are an ECA throughout, so that means MGO.
   ship.rob = { mgo: 340, vlsfo: 240 };
@@ -3146,8 +3162,7 @@ function accrueDaily(sh, dt, quiet){
 
   // Bareboat: the charterer carries the whole running cost. That is the trade.
   if(emp.type !== "bb"){
-    const opex = opexDay(cls, shipAge(sh)) * (sh.flagMult||1)
-               * (1 + (1-(sh.hull??1))*0.35) * dt;
+    const opex = opexDayFull(cls, shipAge(sh), sh) * dt;
     S.cash -= opex; S.ledger.opex += opex;
   }
   // Registry fee
@@ -3315,7 +3330,7 @@ function settleVoyage(sh, quiet){
   const costs = v.act.bunkerCost + v.act.portDA + v.act.tolls + v.act.war + carbon;
   const gvp = net - costs + dem + (v.bonus||0);
   const tce = gvp/days;
-  const opex = (sh.emp && sh.emp.type === "bb" ? 0 : opexDay(cls, shipAge(sh))*(sh.flagMult||1)) * days;
+  const opex = (sh.emp && sh.emp.type === "bb" ? 0 : opexDayFull(cls, shipAge(sh), sh)) * days;
 
   sh.port = v.fx.disch; sh.status = "idle"; sh.voyage = null;
   sh.voyages++; sh.lifeDays += days; sh.lifeGvp += gvp;
@@ -4227,7 +4242,7 @@ function shipCard(sh){
   } else if(v){
     const p = v.plan, ph = phaseOf(v);
     pill = `<span class="pill on">${{ballast:"Ballast",loading:"Loading",laden:"Laden",discharging:"Discharging"}[ph.name]}</span>`;
-    line2 = `${esc(p.loadName)} → ${esc(p.dischName)} · ${days1(Math.max(0,p.days+(v.act.extra||0)-v.elapsed))} to go`;
+    line2 = `${esc(p.loadName)} → ${esc(p.dischName)} · ${days1(Math.max(0,p.days+(v.act.extra||0)-v.elapsed))} to go · <span class="${cls_pn(p.netCash)}">${money(p.netCash, p.netCash>0)}</span>`;
     prog = `<div class="bar pos" style="margin-top:9px"><i style="width:${pc(clamp(v.elapsed/(p.days+(v.act.extra||0)),0,1))}"></i></div>`;
   } else if(sh.emp && sh.emp.type !== "spot"){
     pill = `<span class="pill on">On hire</span>`;
@@ -4346,7 +4361,8 @@ function sheetShip(id){
 
   h += `<h2 class="sect">Commercial</h2><div class="card" style="margin:0">
     ${kv("Market value", money(val))}
-    ${kv("Daily "+T("opex","OPEX"), money0(opexDay(cls,age)*(sh.flagMult||1)) + (sh.flagMult!==1?` (${FLAGS[sh.flag].name} ${sh.flagMult>1?"+":""}${Math.round((sh.flagMult-1)*100)}%)`:""))}
+    ${kv("Daily "+T("opex","OPEX"), money0(opexDayFull(cls,age,sh)) + (sh.flagMult!==1?` (${FLAGS[sh.flag].name} ${sh.flagMult>1?"+":""}${Math.round((sh.flagMult-1)*100)}%)`:""))}
+    ${sh.hull < expectedHull(age)-0.005?kv("Condition penalty", "+"+pc(clamp(expectedHull(age)-sh.hull,0,1)*0.6)+" on OPEX — she is below condition for her age", "haz"):""}
     ${sh.debt?kv("Mortgage", money(sh.debt.principal)+" @ "+pc(sh.debt.rate)):kv("Mortgage","None")}
     ${sh.debt?kv(T("ltv","LTV"), pc(sh.debt.principal/val), sh.debt.principal/val>0.7?"haz":""):""}
     ${kv("Scrap value", money(scrapValue(sh.cls, MKT)))}
