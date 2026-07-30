@@ -882,3 +882,65 @@ who had no choice in the matter. Utilisation is now the player's decision — ho
 out for a better rate and idle deliberately, or take the workmanlike cargo. The
 first 60 days still dip to $359k, so the opening stays tight without ever being
 dead time.
+
+---
+
+## Appendix E — Voyage working capital
+
+Player report: costs while sailing wipe out the balance after a few fixtures,
+especially on voyages over 40 days.
+
+This was a cash-flow timing gap, not a profitability one. Freight was credited
+**100% on discharge**, while bunkers, port disbursements, canal tolls, war risk,
+OPEX and debt service were all paid *during* the voyage. So the player funded the
+entire voyage out of pocket and was repaid only at the end.
+
+Measured on the opening position ($649,061 cash, one 22-year Handysize):
+
+| Voyage | Days | Net freight | TCE | Cash needed to reach discharge |
+|---|---:|---:|---:|---:|
+| Riga → Ghent | 11.2 | $242,818 | $8,980 | $212,447 |
+| Ghent → Aliaga | 24.3 | $386,931 | $6,394 | $388,130 |
+| Casablanca → Santos | 37.0 | $602,469 | $7,873 | $541,497 |
+| Casablanca → Mumbai | 43.5 | $899,629 | $8,253 | **$810,680** |
+
+That last one is a **profitable** voyage that bankrupts you before it pays.
+
+### The fix is what the charterparty actually says
+
+Voyage charters pay the bulk of the freight against the **bill of lading** — once
+cargo is loaded — with the balance on right and true delivery. Standard terms are
+95/5. So `CFG.FREIGHT_ON_BL = 0.95`: 95% credited on completion of loading, the
+balance on discharge. If an event later cuts the total below what was advanced,
+there is simply no balance to collect — you keep the advance, which is also what
+happens in life.
+
+Simulated from the real opening position, the advance now lands on day 2.5–4.8 on
+a direct voyage, and the cash trough never goes negative on any of them.
+
+### Made visible rather than merely survivable
+
+A voyage can be profitable and still be one you cannot afford, so the fixture
+sheet now carries a **Cash flow** section: the freight terms, what the advance is
+and which day it arrives, the working capital needed until then, and what you
+actually hold. Short of it and the card carries a `Needs $X cash` chip, the
+section turns red, and the fix button reads *"Fix anyway — you cannot fund this"*.
+Informed, not blocked.
+
+### Result — 180 days, five seeds, three strategies
+
+| Strategy | Avg voyage | Went bust | Worst cash trough | Avg equity |
+|---|---:|---:|---:|---:|
+| Best TCE (expert) | 23.7 d | 0/5 | $533,027 | $3.51M |
+| Biggest headline $ (new player) | 33.7 d | 0/5 | $416,025 | $3.41M |
+| Always the longest voyage | 30.6 d | 0/5 | $265,081 | $2.68M |
+
+Nobody goes bust from timing any more, and skill still separates the strategies —
+chasing the biggest number on the card costs about $840k of equity over half a
+year against reading TCE, and always taking the longest voyage costs $830k more.
+The punishment moved from "you are dead" to "you are behind", which is where it
+belongs.
+
+Also fixed here: `.kv` rows had `white-space: nowrap` on the value, so any
+sentence-length value overlapped its own label. Added a stacked variant and
+applied it to the four rows that carry prose.

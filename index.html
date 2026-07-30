@@ -165,6 +165,8 @@ h2.sect:first-child{margin-top:2px}
 .kv .v{font-variant-numeric:tabular-nums;font-weight:600;text-align:right;white-space:nowrap}
 .kv.tot{border-top:1px solid var(--line2);border-bottom:0;margin-top:4px;padding-top:9px;font-size:14.5px}
 .kv.tot .k{color:var(--txt);font-weight:650}
+.kv.stack{display:block}
+.kv.stack .v{display:block;text-align:left;white-space:normal;margin-top:3px;font-weight:600}
 
 /* term — inline glossary affordance */
 .term{border-bottom:1px dotted var(--mut2);cursor:pointer}
@@ -323,6 +325,11 @@ const CFG = {
                 ltv: 0.60, rate: 0.070, termYears: 12 },
 
   /* --- finance ----------------------------------------------------------- */
+  // Voyage charterparties pay the bulk of the freight against the bill of lading
+  // — i.e. once cargo is loaded — with the balance on right and true delivery.
+  // Crediting it all on discharge made the player fund an entire long voyage out
+  // of pocket, which bankrupted profitable fixtures before they ever paid.
+  FREIGHT_ON_BL: 0.95,
   COMM_ADDRESS: 0.025,     // address commission to charterer, 2.5% typical
   COMM_BROKER:  0.0125,    // brokerage 1.25%
   OPEX_AGE_SLOPE: 0.012,   // +1.2%/yr of OPEX per year over 10; older = dearer
@@ -698,6 +705,8 @@ const GLOSSARY = {
   liquidity:["Market liquidity", "How much cargo is on offer out of a port. Discharging somewhere thin means a long empty leg to your next fixture."],
   addcomm:  ["Address commission", "A discount, typically 2.5%, that the charterer deducts from the freight. Brokerage is another 1.25% on top."],
   ltv:      ["LTV", "Loan to value — debt as a share of the ship's market value. Banks set a ceiling, and if values fall through it you must repay or post cash."],
+  wcap:     ["Working capital", "The cash you must find to fund a voyage before the freight advance arrives — bunkers, port dues, running costs and debt service. A voyage can be profitable and still be one you cannot afford."],
+  blading:  ["Bill of lading", "The receipt for cargo loaded. Voyage charters pay most of the freight against it, so the money arrives once she is loaded rather than when she discharges."],
   slowsteam:["Slow steaming", "Cutting speed to save fuel. Consumption falls with roughly the cube of speed, so a small speed cut saves a lot of fuel — at the cost of days."],
 };
 /* ############################################################################
@@ -1897,7 +1906,18 @@ function voyageEstimate(ship, fx, speed, mkt, opts){
   const tce = days > 0 ? gvp/days : 0;
 
   const age = opts.year ? opts.year - ship.built : (ship.age ?? 15);
-  const opex = ship.emp && ship.emp.type === "bb" ? 0 : opexDay(cls, age)*(ship.flagMult||1)*days;
+  const opexDaily = ship.emp && ship.emp.type === "bb" ? 0 : opexDay(cls, age)*(ship.flagMult||1);
+  const opex = opexDaily * days;
+
+  // Working capital: everything you must fund out of your own pocket before the
+  // freight advance lands on completion of loading. This is the number that
+  // actually decides whether you can afford a voyage, and it is not the same
+  // question as whether the voyage is profitable.
+  const fixedDaily = opexDaily + (opts.debtDaily || 0);
+  const preDays = balDays + loadDays;
+  const advance = hireMode ? 0 : net * CFG.FREIGHT_ON_BL;
+  const wcap = bunkerCost*(preDays/Math.max(days, 0.01)) + daLoad + tollCost + warCost
+             + fixedDaily*preDays;
 
   return {
     qty, qtyOut, boilLoss, unit:intake.unit, speed:sp0, spBal, spLad, wBal, wLad,
@@ -1910,7 +1930,8 @@ function voyageEstimate(ship, fx, speed, mkt, opts){
     daLoad, daDisch, tolls, tollCost, warZones, warCost,
     ets, feu, euScope:scope,
     laytime, overrun, demRate, demurrage,
-    costs: ownCosts, gvp, tce, opex, netCash: gvp - opex,
+    costs: ownCosts, gvp, tce, opex, opexDaily, netCash: gvp - opex,
+    advance, wcap, preDays,
     cargoName: cargo.name, loadName: lp.name, dischName: dp.name,
   };
 }
@@ -2556,6 +2577,8 @@ function consTable(cls){
 }
 
 const kv = (k,v,c)=>`<div class="kv"><span class="k">${k}</span><span class="v ${c||""}">${v}</span></div>`;
+/* For rows whose value is a sentence, not a figure — stacks instead of colliding. */
+const kvs= (k,v,c)=>`<div class="kv stack"><span class="k">${k}</span><span class="v ${c||""}">${v}</span></div>`;
 const kvt= (k,v,c)=>`<div class="kv tot"><span class="k">${k}</span><span class="v ${c||""}">${v}</span></div>`;
 
 /* Fleet, Charter and the vessel sheet live in §UI II — they carry every system
@@ -2609,6 +2632,7 @@ function voyageBreakdown(e){
     ${kv(`Freight ${Math.round(e.qty).toLocaleString()} mt × $${e.rate.toFixed(2)}`, money0(e.gross))}
     ${kv(T("addcomm","Commissions"), "−"+money0(e.comm), "neg")}
     ${kv("Net freight", money0(e.net))}
+    ${e.advance>0?kv(`  of which ${pc(CFG.FREIGHT_ON_BL)} advanced on loading`, money0(e.advance), "mut"):""}
     ${Object.entries(e.bunkerMt).filter(([g,mt])=>mt>0.5).map(([g,mt])=>
        kv(T(g,CFG.FUEL[g].name)+" "+Math.round(mt)+" mt", "", "mut")).join("")}
     ${kv(T("bunkers","Bunkers")+" total", "−"+money0(e.bunkerCost), "neg")}
@@ -3110,6 +3134,8 @@ function accrueDaily(sh, dt, quiet){
 function estOpts(sh){
   return { year: year(), month: gDate().getUTCMonth(), drought: S.drought,
            shipValue: assetValue(sh.cls, shipAge(sh), MKT),
+           debtDaily: sh.debt && sh.debt.principal>0
+             ? sh.debt.principal*sh.debt.rate/365 + sh.debt.orig/sh.debt.termDays : 0,
            speedCap: sh.speedCap, portRateMult: sh.portRateMult,
            extraDelay: 0 };
 }
@@ -3123,9 +3149,9 @@ function fixVoyage(sh, fx, speed){
   sh.voyage = {
     fx: JSON.parse(JSON.stringify(fx)), plan: est, speed: est.speed,
     elapsed: 0, phase: est.balDays > 0.01 ? "ballast" : "loading",
-    act: { bunkerCost:0, bunkerMt:{}, portDA:0, freight:0, demurrage:0, carbon:0,
-           tolls:0, war:0, days:0, co2:0, nm:0, extra:0, notes:[] },
-    billed: { load:false, disch:false, tolls:false, war:false },
+    act: { bunkerCost:0, bunkerMt:{}, portDA:0, freight:0, freightAdv:0, demurrage:0,
+           carbon:0, tolls:0, war:0, days:0, co2:0, nm:0, extra:0, notes:[] },
+    billed: { load:false, disch:false, tolls:false, war:false, freight:false },
     startDay: S.day,
   };
   sh.status = sh.voyage.phase;
@@ -3168,6 +3194,13 @@ function advanceVoyage(sh, dt, quiet){
     if(!onHire && p.warCost){ v.act.war += p.warCost; S.cash -= p.warCost; S.ledger.war += p.warCost; }
     if(has("psc")) maybePsc(sh, quiet);
   }
+  // Freight advance against the bill of lading, i.e. once she is loaded.
+  if(!v.billed.freight && !onHire && (ph.name === "laden" || ph.name === "discharging")){
+    v.billed.freight = true;
+    const adv = p.net * CFG.FREIGHT_ON_BL;
+    v.act.freightAdv = adv;
+    S.cash += adv; S.ledger.freight += adv;
+  }
   if(ph.name === "discharging" && !v.billed.disch){
     v.billed.disch = true;
     if(!onHire){ const da = portDA(dp, cls); v.act.portDA += da; S.cash -= da; S.ledger.portDA += da; }
@@ -3193,8 +3226,13 @@ function settleVoyage(sh, quiet){
     net = p.hireMode.rate * days * (1 - CFG.TC.addComm);
   } else {
     const recover = v.recoverPct ?? 1;
-    net = p.net * recover * (v.freightAdj ?? 1);
-    S.cash += net; S.ledger.freight += net;
+    const total = p.net * recover * (v.freightAdj ?? 1);
+    const already = v.act.freightAdv || 0;
+    // Balance on right and true delivery. If an event cut the total below what was
+    // already advanced there is simply no balance to collect — you keep the advance.
+    const balance = Math.max(0, total - already);
+    S.cash += balance; S.ledger.freight += balance;
+    net = already + balance;
   }
   const dem = onHire ? 0 : p.demurrage;
   if(dem){ S.cash += dem; S.ledger.demurrage += dem; }
@@ -3234,6 +3272,7 @@ function settleVoyage(sh, quiet){
     canals: p.canals, altNm: p.altNm,
     carbon, etsCost:ets.cost, feuCost:feu.cost, etsCo2:ets.co2, euScope:scope,
     demurrage: dem, laytime:p.laytime, overrun:p.overrun, demRate:p.demRate,
+    advance: v.act.freightAdv||0, wcap:p.wcap,
     costs, gvp, tce, opex, netCash: gvp-opex, notes: v.act.notes.slice(),
   };
   S.log.unshift(entry);
@@ -4187,7 +4226,7 @@ function sheetShip(id){
     <div class="sm mut" style="margin-top:4px">${days1(sh.dd.left)} to go. ${sh.emp&&sh.emp.type!=="spot"?"She is off-hire, so the charterer is paying nothing.":"Earning nothing."}</div></div>`;
 
   h += `<h2 class="sect" style="margin-top:0">Employment</h2><div class="card" style="margin:0">
-    ${kv("Status", empLabel(sh))}
+    ${kvs("Status", empLabel(sh))}
     ${sh.emp&&sh.emp.endDay?kv("Redelivery", dateFull(sh.emp.endDay)):""}
     ${sh.emp&&sh.emp.earned?kv("Hire earned", money(sh.emp.earned)):""}
     ${sh.emp&&sh.emp.offHire?kv(T("offhire","Off-hire"), days1(sh.emp.offHire), "neg"):""}
@@ -4217,7 +4256,7 @@ function sheetShip(id){
     ${cls.ceu?kv("Capacity", cls.ceu.toLocaleString()+" CEU"):""}
     ${kv("Summer "+T("draft","draft"), cls.draft.toFixed(1)+" m")}
     ${kv("Beam", cls.beam.toFixed(1)+" m")}
-    ${kv("Canals", canalNote(cls))}
+    ${kvs("Canals", canalNote(cls))}
     ${kv("Cargo gear", cls.geared?`${T("geared","Geared")} — ${cls.swl}t`:"Gearless")}
     ${cls.ice?kv(T("iceclass","Ice class"), ["","1C","1A","1A Super"][cls.ice]):""}
     ${kv("Built", sh.built+" · "+age+" years")}
@@ -4341,6 +4380,7 @@ function fixtureCard(sh, f, e){
   if(has2("canal") && Object.keys(e.canals).length) chips.push(`<span class="pill">${Object.keys(e.canals).map(c=>CFG.CANAL[c].name.split(" ")[0]).join("+")}</span>`);
   if(e.warZones.length) chips.push(`<span class="pill bad">War risk</span>`);
   if(f.vetGate) chips.push(`<span class="pill ${vettingScore(sh)>=CFG.VET.gate?"on":"bad"}">${esc(f.major)}</span>`);
+  if(e.wcap > S.cash) chips.push(`<span class="pill bad">Needs ${money(e.wcap)} cash</span>`);
   return `<div class="card tap" onclick="sheetFixture(${sh.id},'${f.id}')">
     <div class="between"><div class="grow trunc">
       <div class="b trunc">${esc(e.loadName)} → ${esc(e.dischName)}</div>
@@ -4449,15 +4489,28 @@ function renderFixtureSheet(sh, f, sp){
     ${kv(T("opex","OPEX")+" "+days1(e.days), "−"+money0(e.opex), "neg")}
     ${kvt("Net contribution", money0(e.netCash), cls_pn(e.netCash))}</div>`;
 
+  const short = e.wcap > S.cash;
+  h += `<h2 class="sect">Cash flow</h2><div class="card" style="margin:0${short?";border-color:var(--neg)":""}">
+    ${kvs("Freight terms", `${pc(CFG.FREIGHT_ON_BL)} against the ${T("blading","bill of lading")}, balance on delivery`)}
+    ${kv("Advance arrives", money0(e.advance)+" on day "+(Math.round(e.preDays*10)/10))}
+    ${kv(T("wcap","Cash to fund until then"), money0(e.wcap), short?"neg":"")}
+    ${kv("You have", money(S.cash), short?"neg":"pos")}
+    ${short
+      ? `<div class="xs neg" style="margin-top:7px">You cannot fund this voyage. She would run out of cash before the freight advance lands — a profitable fixture you simply cannot afford yet. Take a shorter trade, or one loading closer to where she is.</div>`
+      : `<div class="xs mut2" style="margin-top:7px">Most of the freight lands once she is loaded, so a long voyage ties up less than its total cost. What you must carry is the ballast leg, the load port bill and the running costs until then.</div>`}
+  </div>`;
+
   h += `<h2 class="sect">Terms</h2><div class="card" style="margin:0">
-    ${kv("Charter party", T("fiost","FIOST"))}
+    ${kvs("Charter party", T("fiost","FIOST")+" — charterer loads and discharges")}
     ${kv(T("laytime","Laytime")+" allowed", days1(e.laytime))}
     ${kv(T("laycan","Laycan")+" opens", "in "+f.laydays+" days")}
     ${kv(T("stowage","Stowage factor"), (CARGOES[f.cargo].sf||0).toFixed(2)+" m³/mt")}
   </div>`;
 
   showSheet(`${esc(lp.name)} → ${esc(dp.name)}`, `${CARGOES[f.cargo].name} · ${esc(sh.name)}`, h,
-    `<button class="btn pri" onclick="doFix(${sh.id},'${f.id}',${sp})">Fix at ${money(e.tce)}/day</button>`);
+    short
+      ? `<button class="btn dang" onclick="doFix(${sh.id},'${f.id}',${sp})">Fix anyway — you cannot fund this</button>`
+      : `<button class="btn pri" onclick="doFix(${sh.id},'${f.id}',${sp})">Fix at ${money(e.tce)}/day</button>`);
 }
 function f_route(fxId, avoid){ const f=S.fixtures.find(x=>x.id===fxId); if(f) f.avoidCanals=avoid; }
 function f_nsr(fxId){ const f=S.fixtures.find(x=>x.id===fxId); if(f) f.nsr=!f.nsr; }
