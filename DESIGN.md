@@ -1080,3 +1080,79 @@ Not a softened cost — the other half of the ledger, shown continuously.
 
 Five consecutive contracts from the opening position now run $650,000 →
 $2,074,841, trough never below $604,577, equity $2.10M → $3.82M in 112 days.
+
+---
+
+## Appendix H — The shore organisation
+
+A shipowner is not a fleet, it is an office that happens to own ships. Six
+departments, a sixth tab, and one hard rule: **this adds no new cost.**
+
+### It is the management fee, moved
+
+Vessel OPEX has always contained a management fee (§2.1 lists it). That component
+— 7%, the usual third-party rate — is now carved **out** of the daily vessel cost
+and spent ashore instead. Verified exactly on the opening position:
+
+```
+vessel OPEX before   $4,870/day
+vessel OPEX now      $4,529/day   (ex management)
++ shore              $  341/day   (the fee, paid to a third-party manager)
+= combined           $4,870/day   identical
+```
+
+The opening five-contract run is byte-identical to before the change.
+
+### Departments, and the real span of control
+
+| Department | Salary | 1 person per | Consequence of skimping |
+|---|---:|---:|---|
+| Crewing | $85k | 6.7 ships | Crew cost +10%, retention, crew-crisis events ×2 |
+| Technical | $150k | 5.0 ships | Hull decay ×2, drydock cost +25%, breakdowns ×2 |
+| Marine & HSEQ | $130k | 12.5 ships | PSC deficiencies ×1.6, vetting score, **DPA required by ISM** |
+| Operations | $95k | 4.5 ships | Demurrage collected falls to 55%, port DA +6%, bunker buying |
+| Chartering | $145k | 6.7 ships | Cargoes on the board ×0.72, freight achieved −3% |
+| Finance | $115k | 10.0 ships | Loan margin ±40 bps, insurance ±8% |
+
+One technical superintendent to five ships is the industry benchmark, and the
+Operations effect is the one that will teach the most: **an under-staffed
+operations desk does not get round to claiming all the demurrage you are owed.**
+
+Marine & HSEQ is not optional — the ISM Code requires a Designated Person Ashore.
+Run in-house with nobody in that department and the Office tab carries a
+compliance warning and inspections go badly.
+
+### Third-party or in-house
+
+The game starts **fully managed**, which is what a one-ship owner actually does
+and costs exactly what it cost before. In-house opens at 5 ships and 16 voyages.
+
+Span of control improves with scale — a large office specialises, a small one has
+everyone doing three jobs — so `scaleFactor(n) = 0.55 + 0.45·e^-((n-1)/18)`.
+Measured:
+
+| Ships | Heads | In-house/day | Manager/day | $/ship in-house | Saving |
+|---:|---:|---:|---:|---:|---:|
+| 5 | 5 | $2,411 | $1,685 | $482 | −$726 |
+| 8 | 7 | $3,129 | $2,693 | $391 | −$436 |
+| 12 | 8 | $3,611 | $4,037 | $301 | +$426 |
+| 20 | 12 | $5,978 | $6,725 | $299 | +$747 |
+| 45 | 24 | $10,682 | $15,125 | $237 | +$4,443 |
+
+Break-even is **11 ships**, and the game tells the player that number rather than
+letting them discover it the expensive way. Per-ship shore cost of $237–482/day
+sits inside the real $300–600 band.
+
+### Superintendents attend
+
+The technical department is not only a multiplier. With your own superintendents
+you can send one to attend a drydock for $24k: 15% off the time in dock and a
+better job done on the hull. It is the classic technical decision and it belongs
+to the player.
+
+### Deviation from the original screen map
+
+§4 committed to 4–5 tabs. This is a sixth. Six tabs at 390 px give 65×55 px
+targets — still comfortably above the 44 px floor and still one-handed — and the
+shore organisation is too central to bury inside Company. Noted as a deliberate
+departure rather than an oversight.

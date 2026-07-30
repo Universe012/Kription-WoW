@@ -1652,14 +1652,14 @@ function portDays(cargo, port, qty, loading){
 
 /* Port disbursements, scaled off the port's Handysize-reference figure. */
 function portDA(port, cls){
-  return Math.round(port.da * Math.pow(cls.gt/20000, 0.55));
+  return Math.round(port.da * Math.pow(cls.gt/20000, 0.55) * shoreFx("portDaMult"));
 }
 
 /* Bunker price $/mt for a grade at a port; null if not available there. */
 function bunkerPrice(port, grade, mkt){
   const off = port.bunker && port.bunker[grade];
   if(off === undefined || off === null) return null;
-  return Math.round(CFG.FUEL[grade].base * (mkt ? mkt.oil : 1) + off);
+  return Math.round((CFG.FUEL[grade].base * (mkt ? mkt.oil : 1) + off) * shoreFx("bunkerMult"));
 }
 
 /* Daily OPEX — older tonnage costs more to keep in class. */
@@ -1679,7 +1679,13 @@ function expectedHull(ageYears){
    against an age-appropriate hull is a penalty. */
 function opexDayFull(cls, ageYears, ship){
   const neglect = ship ? clamp(expectedHull(ageYears) - (ship.hull ?? 1), 0, 1) : 0;
-  return opexDay(cls, ageYears) * ((ship && ship.flagMult) || 1) * (1 + neglect*0.6);
+  // The management fee is carved OUT of the vessel and spent ashore instead (§SHORE),
+  // so this is not a cost cut — it is the same money, moved somewhere you control.
+  const exMgmt = 1 - (CFG.MGMT_FEE_SHARE || 0);
+  // Crew is roughly half of OPEX, so a stretched crewing department lands at half rate.
+  const crew = 1 + (shoreFx("crewCostMult") - 1)*0.5;
+  return opexDay(cls, ageYears) * exMgmt * crew
+       * ((ship && ship.flagMult) || 1) * (1 + neglect*0.6);
 }
 
 /* ==========================================================================
@@ -2025,8 +2031,8 @@ function pscRisk(ship){
 function pscInspect(ship, rnd){
   const flag = FLAGS[ship.flag || "panama"], cs = CLASS_SOC[ship.classSoc || "bv"];
   const cond = (1 - (ship.hull ?? 1));
-  const lambda = 1.1 + cond*7 + Math.max(0, (ship.age??15)-15)*0.14
-                 + (flag.psc-1)*2.2 + (cs.psc-1)*2.0;
+  const lambda = (1.1 + cond*7 + Math.max(0, (ship.age??15)-15)*0.14
+                 + (flag.psc-1)*2.2 + (cs.psc-1)*2.0) * shoreFx("pscDefMult");
   // Poisson draw on deficiencies
   let k = 0, p = Math.exp(-lambda), cum = p;
   const u = rnd();
@@ -2082,6 +2088,7 @@ function vettingScore(ship){
   s += (cs.rep + flag.rep)*90;
   s -= (ship.deficiencies||0)*1.6;
   s += (ship.vetPasses||0)*2.2;
+  s += shoreFx("vettingBonus", 0);
   return clamp(Math.round(s), 0, 100);
 }
 
@@ -2290,6 +2297,8 @@ function load(raw){
   if(!d || !d.s) throw new Error("not a Kription save");
   S = d.s;
   if(S.autoPause === undefined) S.autoPause = true;   // saves from before the setting
+  if(!S.office) S.office = defaultOffice();           // saves from before the shore org
+  if(S.ledger && S.ledger.shore === undefined) S.ledger.shore = 0;
   // Rebuild the market: same seed, then restore the evolved values directly.
   MKT = newMarket(d.mkt.seed);
   MKT.oil = d.mkt.oil; MKT.oilNoise = d.mkt.oilNoise;
@@ -2431,6 +2440,7 @@ const TABS = [
   { id:"charter", label:"Charter", ic:'<path d="M5 4h10l4 4v12H5z"/><path d="M9 12h6M9 16h6"/>' },
   { id:"market",  label:"Market",  ic:'<path d="M4 19V9M9 19V5M14 19v-7M19 19v-4"/>' },
   { id:"yard",    label:"Yard",    ic:'<path d="M4 20V8l8-4 8 4v12"/><path d="M9 20v-6h6v6"/>' },
+  { id:"office",  label:"Office",  ic:'<path d="M4 21V6a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v15"/><path d="M14 11h4a2 2 0 0 1 2 2v8"/><path d="M8 8h2M8 12h2M8 16h2"/>' },
   { id:"company", label:"Company", ic:'<path d="M4 20V7l8-3 8 3v13"/><path d="M9 11h2M13 11h2M9 15h2M13 15h2"/>' },
 ];
 
@@ -2562,7 +2572,8 @@ const dirty = ()=>{ _dirty = true; };
 function render(){
   renderTop(); renderTabs();
   const el = $("screen");
-  const fns = { fleet:vFleet, charter:vCharter, market:vMarket, yard:vYard, company:vCompany };
+  const fns = { fleet:vFleet, charter:vCharter, market:vMarket, yard:vYard,
+                office:vOffice, company:vCompany };
   el.innerHTML = `<div id="banner"${hasStorage?' style="display:none"':''}>${
     hasStorage?"":"Browser storage unavailable — this session is memory-only. Use Export Save in Company to keep your run."}</div>`
     + (fns[S.tab]||vFleet)();
@@ -3047,8 +3058,9 @@ function newGame(seed){
     snp: [], orders: [], coas: [], services: [], ffa: [], swaps: [],
     events: [], eventStamp: 0,
     ledger: { freight:0, hire:0, bunkers:0, portDA:0, tolls:0, war:0, carbon:0,
-              demurrage:0, opex:0, interest:0, principal:0, survey:0, psc:0,
+              demurrage:0, opex:0, shore:0, interest:0, principal:0, survey:0, psc:0,
               tax:0, snp:0, scrap:0, liner:0, derivatives:0, penalties:0 },
+    office: defaultOffice(),
     yearBook: { start:0, profit:0 },
     daily: [], log: [], seen: {}, coached: {}, mkt: null,
     rep: 0.5, rating: "C", cov: null,
@@ -3118,6 +3130,7 @@ function stepSim(dt, quiet){
     else if(sh.status === "idle") maybeAutoEmploy(sh, quiet);
   }
   for(const svc of S.services) accrueService(svc, dt);
+  accrueShore(dt);
 
   const d = Math.floor(S.day);
   if(!S.daily.length || S.daily[S.daily.length-1].day !== d){
@@ -3186,7 +3199,8 @@ function accrueDaily(sh, dt, quiet){
     S.cash -= (i+p); S.ledger.interest += i; S.ledger.principal += p;
   }
   // Working the ship wears her; drydock puts it back.
-  if(sh.status !== "idle" && !sh.dd) sh.hull = clamp(sh.hull - 0.000045*dt, 0.35, 1);
+  if(sh.status !== "idle" && !sh.dd)
+    sh.hull = clamp(sh.hull - 0.000045*dt*shoreFx("hullDecayMult"), 0.35, 1);
 }
 
 /* ==========================================================================
@@ -3318,7 +3332,9 @@ function settleVoyage(sh, quiet){
     S.cash += balance; S.ledger.freight += balance;
     net = already + balance;
   }
-  const dem = onHire ? 0 : p.demurrage;
+  // Demurrage has to be claimed. A thin operations desk simply does not get
+  // round to all of it — despatch you owe is still paid in full.
+  const dem = onHire ? 0 : (p.demurrage > 0 ? p.demurrage*shoreFx("demurrageRate") : p.demurrage);
   if(dem){ S.cash += dem; S.ledger.demurrage += dem; }
 
   // Carbon settles on the fuel actually burned, not the estimate.
@@ -3405,7 +3421,7 @@ function checkSurvey(sh, quiet){
   startDrydock(sh, nx.type, quiet);
 }
 function startDrydock(sh, type, quiet){
-  const cost = surveyCost(sh, type), days = surveyDays(sh, type);
+  const cost = surveyCost(sh, type)*shoreFx("drydockCostMult"), days = surveyDays(sh, type);
   sh.dd = { type, days, left:days, cost, paid:false };
   sh.status = "drydock";
   S.cash -= cost; S.ledger.survey += cost; sh.dd.paid = true;
@@ -3417,7 +3433,7 @@ function advanceDrydock(sh, dt, quiet){
   const type = sh.dd.type;
   if(type === "SS"){ sh.lastSS = S.day; sh.lastIS = S.day; }
   else sh.lastIS = S.day;
-  sh.hull = clamp(sh.hull + (type === "SS" ? 0.34 : 0.16), 0, 1);
+  sh.hull = clamp(sh.hull + (type === "SS" ? 0.34 : 0.16) + (sh.dd.bonus||0), 0, 1);
   sh.deferrals = 0; sh.deferRequested = null; sh.pscBump = Math.max(0, (sh.pscBump||0)-0.5);
   sh.dd = null; sh.status = "idle";
   if(!quiet) toast(`<b>${esc(sh.name)}</b> out of drydock, back in class.`, "good");
@@ -3498,7 +3514,7 @@ function candidatesFor(sh, relax){
 function topUpBoard(sh, target){
   const rnd = MKT.rnd, cls0 = shipCls(sh);
   const have = S.fixtures.filter(f=>f.forShip===sh.id);
-  const want = target ?? (3 + Math.floor(rnd()*3));
+  const want = target ?? Math.max(2, Math.round((3 + Math.floor(rnd()*3))*shoreFx("boardMult")));
   if(have.length >= want) return;
   const taken = new Set(have.map(f=>f.load+">"+f.disch+">"+f.cargo));
   let cand = [];
@@ -3607,7 +3623,7 @@ function mkFixture(r, sh, rnd, extra){
   const jitter = (rnd()*2-1);
   const idx = routeIdx(r);
   const base = r.flat ?? r.rate;
-  const rate = base * (MKT.idx[idx].v/100) * (1 + jitter*CFG.FIXTURE_NOISE);
+  const rate = base * (MKT.idx[idx].v/100) * (1 + jitter*CFG.FIXTURE_NOISE) * shoreFx("freightMult");
   const intake = intakeFor(cls, cargo, lp, dp, robTot(sh));
   const qty = Math.round(intake.qty * (rnd() < 0.78 ? 1 : 0.72 + rnd()*0.2));
   const agreed = (qty/((cargo.load*lp.rateFactor)||1) + qty/((cargo.disch*dp.rateFactor)||1)) * (0.90 + rnd()*0.10);
@@ -3725,7 +3741,10 @@ function buyShip(offerId, ltv){
   hideSheet(); dirty();
   toast(`Bought <b>${esc(sh.name)}</b> — ${CLASSES[o.cls].name}, ${o.age} years, for ${money(o.ask)}.`, "good");
 }
-function loanRate(){ return CFG.FIN.rateBase + (CFG.FIN.marginByRating[S.rating] ?? 0.033); }
+function loanRate(){
+  return Math.max(0.02, CFG.FIN.rateBase + (CFG.FIN.marginByRating[S.rating] ?? 0.033)
+                      + shoreFx("loanMarginAdj", 0));
+}
 let _nameN = 0;
 const NAME_A = ["Kription","Nordic","Arctic","Atlantic","Bergen","Fjord","Polar","Vestland",
                 "Trondheim","Haugesund","Meridian","Cardinal","Baltic","Aurora","Solstice"];
@@ -4022,9 +4041,11 @@ function pickEvent(sh){
     return true;
   });
   if(!ok.length) return null;
-  const tot = ok.reduce((a,e)=>a+e.w,0);
+  const wOf = (e)=> e.w * (e.id === "crewcrisis" ? shoreFx("crewCrisisMult")
+                        : e.id === "breakdown" ? shoreFx("breakdownMult") : 1);
+  const tot = ok.reduce((a,e)=>a+wOf(e),0);
   let x = MKT.rnd()*tot;
-  for(const e of ok){ x -= e.w; if(x<=0) return e; }
+  for(const e of ok){ x -= wOf(e); if(x<=0) return e; }
   return ok[0];
 }
 function eventCtx(q){
@@ -4148,6 +4169,8 @@ function tabAlert(id){
                            && (S.fixtures.length + (S.tcOffers||[]).length + (S.dayOffers||[]).length) > 0;
   if(id === "fleet")   return S.events.length > 0 || S.ships.some(s=>surveySoon(s));
   if(id === "company") return !!S.cov;
+  if(id === "office")  return SHORE.noDpa() || (S.office && S.office.mode === "inhouse"
+                              && shoreHealth().worst < 0.5);
   return false;
 }
 function surveySoon(sh){
@@ -4307,7 +4330,13 @@ function sheetShip(id){
   }
   if(sh.dd) h += `<div class="card" style="margin:0 0 12px;border-color:var(--haz)">
     <div class="b haz">${sh.dd.type==="SS"?"Special survey":sh.dd.type==="IS"?"Intermediate survey":"Retrofit"}</div>
-    <div class="sm mut" style="margin-top:4px">${days1(sh.dd.left)} to go. ${sh.emp&&sh.emp.type!=="spot"?"She is off-hire, so the charterer is paying nothing.":"Earning nothing."}</div></div>`;
+    <div class="sm mut" style="margin-top:4px">${days1(sh.dd.left)} to go. ${sh.emp&&sh.emp.type!=="spot"?"She is off-hire, so the charterer is paying nothing.":"Earning nothing."}</div>
+    ${sh.dd.attended
+      ? `<div class="xs pos" style="margin-top:6px">A ${T("superint","superintendent")} is attending — 15% off the time in dock and a better job done.</div>`
+      : (S.office&&S.office.mode==="inhouse"&&(S.office.staff.technical||0)>0
+        ? `<button class="btn sm" style="width:100%;margin-top:9px" onclick="attendDrydock(${sh.id})">Send a superintendent — $24k</button>`
+        : `<div class="xs mut2" style="margin-top:6px">With your own technical department you could send a ${T("superint","superintendent")} to attend.</div>`)}
+  </div>`;
 
   h += `<h2 class="sect" style="margin-top:0">Employment</h2><div class="card" style="margin:0">
     ${kvs("Status", empLabel(sh))}
@@ -5166,7 +5195,8 @@ function vCompany(){
     ${L.tolls?kv("Canal tolls", "−"+money(L.tolls), "neg"):""}
     ${L.war?kv(T("warrisk","War risk"), "−"+money(L.war), "neg"):""}
     ${L.carbon?kv("Carbon", "−"+money(L.carbon), "neg"):""}
-    ${kv(T("opex","OPEX"), "−"+money(L.opex), "neg")}
+    ${kv(T("opex","OPEX")+" — at sea", "−"+money(L.opex), "neg")}
+    ${kv("Shore organisation", "−"+money(L.shore||0), "neg")}
     ${L.survey?kv("Surveys and drydock", "−"+money(L.survey), "neg"):""}
     ${L.psc?kv(T("psc","PSC")+" deficiencies", "−"+money(L.psc), "neg"):""}
     ${L.penalties?kv("COA penalties", "−"+money(L.penalties), "neg"):""}
@@ -5184,6 +5214,9 @@ function vCompany(){
     ${fleetDays>0?kv("Fleet "+T("tce","TCE"), money(fleetGvp/fleetDays)+"/day"):""}
     ${kv("Average OPEX", money0(S.ships.reduce((a,s)=>a+opexDay(shipCls(s),shipAge(s))*(s.flagMult||1),0)/Math.max(1,S.ships.length))+"/day")}
     ${kv("Reputation", pc(S.rep), S.rep>0.6?"pos":S.rep<0.4?"neg":"")}
+    ${kv("Shore cost per ship", money0(shorePerShipDay())+"/day")}
+    ${S.office && S.office.mode==="inhouse"?kv("Office", totalHeads()+" people · "+shoreHealth().label,
+        shoreHealth().worst>=1?"pos":shoreHealth().worst>=0.75?"haz":"neg"):kv("Office", "Third-party managed")}
     ${has("cii")?kv("Fleet "+T("cii","CII"), ciiSpread()):""}
     ${S.ships.some(s=>s.offHireDays>0.1)?kv(T("offhire","Off-hire to date"), days1(S.ships.reduce((a,s)=>a+s.offHireDays,0)), "neg"):""}
   </div>`;
@@ -5246,6 +5279,460 @@ function onUnlockCheck(){
   if(n>=CFG.UNLOCK2.container) coach("u_box","Container tonnage","You can own boxships. Charter them to liner operators for a steady return, or — once you have enough of them — run your own service.");
   if(n>=CFG.UNLOCK2.special) coach("u_spec","Specialised tonnage","Gas, car carriers, reefers, project cargo, offshore support and live fish carriers. Thin markets, high day rates, and some of them will only work for you under a Norwegian flag.");
   if(n>=CFG.UNLOCK2.liner) coach("u_liner","Run a service","Open the Charter tab's Services section. Pick a lane and a frequency and the game works out the string: round voyage divided by frequency. Slow the service down and you need <b>more</b> ships — but the whole string burns far less fuel. That trade is the heart of container shipping.");
+}
+/* ############################################################################
+   §SHORE — the organisation on land.
+
+   A shipowner is not a fleet, it is an office that happens to own ships. Six
+   departments, each with a real job and a real consequence for skimping.
+
+   IMPORTANT — this is NOT a new cost bolted on top. Vessel OPEX has always
+   contained a management fee (§2.1 of the design doc lists it). That component
+   is now carved OUT of the daily vessel cost and spent here instead, so a player
+   on third-party management pays exactly what they paid before. Going in-house
+   is a decision that can beat that fee or lose to it.
+   ######################################################################### */
+
+Object.assign(CFG, {
+  // Share of vessel OPEX that was the management fee. Carved out of the ship and
+  // spent ashore instead — 6-8% is the usual third-party rate.
+  MGMT_FEE_SHARE: 0.07,
+
+  OFFICE: {
+    // Below this you cannot sensibly staff six departments — which is exactly why
+    // small owners use a third-party manager in life.
+    minShipsInhouse: 5,
+    unlockVoyages: 16,
+    perHeadOverhead: 26000,      // desk, IT, travel, insurance, per head per year
+    hireCost: 0.28,              // recruitment: share of one year's salary
+    severance: 0.35,             // and what letting someone go costs
+    premises: {
+      none:   { name:"Serviced desks",  cap:4,  fixed:0,       note:"A room and a phone. Fine for a handful of ships." },
+      small:  { name:"Small office",    cap:10, fixed:145000,  note:"Room for a proper crewing and technical function." },
+      office: { name:"Company office",  cap:28, fixed:430000,  note:"A full management office with meeting rooms and a duty desk." },
+      hq:     { name:"Headquarters",    cap:80, fixed:1250000, note:"Group head office. Everything in-house, several trades." },
+    },
+  },
+});
+
+/* ----------------------------------------------------------------------------
+   THE DEPARTMENTS
+   ratio  = heads needed per ship for a properly-run department. These are the
+            real industry spans of control — one technical superintendent to five
+            ships, one operator to four or five, one DPA to a whole fleet.
+   effect = what under- or over-staffing actually does. One or two consequences
+            each, so the player can hold the whole thing in their head.
+------------------------------------------------------------------------------- */
+const DEPTS = {
+  crewing: {
+    name: "Crewing", icon: "👥", salary: 85000, ratio: 0.15,
+    blurb: "Manning agents, rotations, contracts, visas, training and cadets. Keeping 25 people per ship in date, competent and willing to come back.",
+    effect: "Crew cost and how often things go wrong with people.",
+    detail: (a)=>[
+      ["Crew cost", `${a<1?"+":""}${Math.round((1-a)*10)}%`, a<1],
+      ["Retention", a>=1?"Good — officers return":"Poor — constant new faces", a<1],
+      ["Crew crisis risk", `×${clamp(2-a,0.55,2).toFixed(2)}`, a<1],
+    ],
+  },
+  technical: {
+    name: "Technical", icon: "🔧", salary: 150000, ratio: 0.20,
+    blurb: "Superintendents — ex-chief engineers and masters who attend drydocks, run the planned maintenance system and answer at 3am when the main engine stops. One superintendent to five ships is the industry span.",
+    effect: "How fast hulls decay, what drydocks cost, how often machinery fails.",
+    detail: (a)=>[
+      ["Hull decay", `×${clamp(2-a,0.6,2).toFixed(2)}`, a<1],
+      ["Drydock cost", `${a<1?"+":""}${Math.round((1-a)*25)}%`, a<1],
+      ["Breakdown risk", `×${clamp(2-a,0.55,2).toFixed(2)}`, a<1],
+    ],
+  },
+  hseq: {
+    name: "Marine & HSEQ", icon: "🛡", salary: 130000, ratio: 0.08,
+    blurb: "The ISM safety management system, ISPS security, incident investigation, and the Designated Person Ashore — a legal requirement, not a nicety. Also runs vetting.",
+    effect: "Port State Control outcomes and your vetting score.",
+    detail: (a)=>[
+      ["PSC deficiencies", `×${clamp(1.6-0.6*a,0.55,1.6).toFixed(2)}`, a<1],
+      ["Vetting score", `${a>=1?"+":""}${Math.round((a-1)*10)} points`, a<1],
+      ["DPA in post", a>=0.5?"Yes":"NO — you are not compliant", a<0.5],
+    ],
+  },
+  ops: {
+    name: "Operations", icon: "📋", salary: 95000, ratio: 0.22,
+    blurb: "Voyage operators: appointing agents, ordering bunkers, watching laytime, and — critically — actually preparing and pressing the demurrage claims you are owed.",
+    effect: "Demurrage you collect, port disbursements, bunker prices.",
+    detail: (a)=>[
+      ["Demurrage collected", `${Math.round((0.55+0.45*Math.min(a,1))*100)}%`, a<1],
+      ["Port disbursements", `${a<1?"+":""}${Math.round((1-a)*6)}%`, a<1],
+      ["Bunker buying", `${a>1?"−":""}${Math.round(Math.max(0,a-1)*2)}%`, false],
+    ],
+  },
+  chartering: {
+    name: "Chartering", icon: "🤝", salary: 145000, ratio: 0.15,
+    blurb: "Your commercial desk and its broker relationships. More people who know more brokers means more cargoes shown to you first, and a better number when you fix.",
+    effect: "How many fixtures reach your board, and at what rate.",
+    detail: (a)=>[
+      ["Cargoes on the board", `×${(0.72+0.28*Math.min(a,2)).toFixed(2)}`, a<1],
+      ["Freight achieved", `${a>=1?"+":""}${((a-1)*3).toFixed(1)}%`, a<1],
+    ],
+  },
+  finance: {
+    name: "Finance", icon: "📊", salary: 115000, ratio: 0.10,
+    blurb: "Treasury, insurance placement, tax structuring, audit and the bank relationship. Cheap money and a well-placed hull policy are worth more than most freight decisions.",
+    effect: "Your borrowing margin and insurance cost.",
+    detail: (a)=>[
+      ["Loan margin", `${a>=1?"−":"+"}${Math.abs((a-1)*40).toFixed(0)} bps`, a<1],
+      ["Insurance", `${a>=1?"−":"+"}${Math.abs((a-1)*8).toFixed(0)}%`, a<1],
+    ],
+  },
+};
+
+Object.assign(GLOSSARY, {
+  dpa:      ["DPA", "Designated Person Ashore — the named person with direct access to the top of the company for safety matters. The ISM Code requires one; without it you are not compliant."],
+  superint: ["Superintendent", "A technical manager ashore, usually an ex-chief engineer or master, responsible for a handful of ships: maintenance, repairs, drydocks and surveys."],
+  ism:      ["ISM Code", "The International Safety Management Code. Every operator must run a documented safety management system and appoint a DPA ashore."],
+  spanctrl: ["Span of control", "How many ships one shore person can properly look after. One technical superintendent to five ships is the usual benchmark; stretch it and things start being missed."],
+  thirdparty:["Third-party management", "Paying a management company to crew, maintain and operate your ships. Simple, predictable, and you give up control and margin."],
+});
+
+/* ==========================================================================
+   §SHORE MODEL — pure functions
+   ========================================================================= */
+function defaultOffice(){
+  return { mode:"managed", premises:"none",
+           staff:{ crewing:0, technical:0, hseq:0, ops:0, chartering:0, finance:0 },
+           spent:0 };
+}
+
+/* Span of control improves with scale — a large office specialises, a small one
+   has everyone doing three jobs. This is what makes in-house worth doing at size
+   and not worth doing at three ships. */
+function scaleFactor(ships){
+  return 0.55 + 0.45*Math.exp(-(Math.max(1, ships)-1)/18);
+}
+function deptNeed(key){
+  const ships = Math.max(1, S.ships.length);
+  return ships * DEPTS[key].ratio * scaleFactor(ships);
+}
+/* Roughly where running your own office starts to beat paying a manager. Must
+   mirror the REAL calculation — you cannot hire a third of a superintendent, and
+   that rounding is exactly what makes a small office expensive per ship. */
+function inhouseBreakEven(){
+  for(let n=4; n<=80; n++){
+    const sf = scaleFactor(n);
+    let heads = 0, sal = 0;
+    for(const [k,d] of Object.entries(DEPTS)){
+      const c = Math.max(k==="hseq"?1:0, Math.round(n*d.ratio*sf));
+      heads += c; sal += c*d.salary;
+    }
+    const prem = heads<=4?"none":heads<=10?"small":heads<=28?"office":"hq";
+    const inh = (sal + heads*CFG.OFFICE.perHeadOverhead + CFG.OFFICE.premises[prem].fixed)/365;
+    const mgd = n * 4919 * 0.99 * CFG.MGMT_FEE_SHARE;   // a Handysize-equivalent fleet
+    if(inh <= mgd) return n;
+  }
+  return 80;
+}
+
+/* Adequacy: staff held against the staff this fleet needs. 1.0 is properly run.
+   Returns 1.0 in managed mode — a third-party manager is, by construction,
+   averagely competent at everything. That is what you are buying. */
+function deptAdequacy(key){
+  const o = S.office || defaultOffice();
+  if(o.mode !== "inhouse") return 1;
+  return clamp((o.staff[key] || 0) / Math.max(deptNeed(key), 0.0001), 0, 2);
+}
+const totalHeads = ()=> Object.values((S.office||defaultOffice()).staff).reduce((a,b)=>a+b, 0);
+const premisesCap = ()=> CFG.OFFICE.premises[(S.office||defaultOffice()).premises].cap;
+
+/* What the shore organisation costs per day. */
+function shoreCostDay(){
+  const o = S.office || defaultOffice();
+  if(o.mode !== "inhouse"){
+    // The management fee carved out of every ship's OPEX, paid to the manager.
+    return S.ships.reduce((a,s)=>
+      a + opexDay(CLASSES[s.cls], shipAge(s)) * (s.flagMult||1) * CFG.MGMT_FEE_SHARE, 0);
+  }
+  let salaries = 0;
+  for(const [k,d] of Object.entries(DEPTS)) salaries += (o.staff[k]||0) * d.salary;
+  const overhead = totalHeads() * CFG.OFFICE.perHeadOverhead;
+  const premises = CFG.OFFICE.premises[o.premises].fixed;
+  return (salaries + overhead + premises) / 365;
+}
+function shorePerShipDay(){
+  return shoreCostDay() / Math.max(1, S.ships.length);
+}
+/* The fee a third-party manager would charge for this fleet, for comparison. */
+function managedCostDay(){
+  return S.ships.reduce((a,s)=>
+    a + opexDay(CLASSES[s.cls], shipAge(s)) * (s.flagMult||1) * CFG.MGMT_FEE_SHARE, 0);
+}
+
+/* --- the effect hooks the rest of the game reads ------------------------- */
+const SHORE = {
+  crewCostMult:   ()=> 1 + (1 - deptAdequacy("crewing"))*0.10,
+  crewCrisisMult: ()=> clamp(2 - deptAdequacy("crewing"), 0.55, 2),
+  hullDecayMult:  ()=> clamp(2 - deptAdequacy("technical"), 0.6, 2),
+  drydockCostMult:()=> 1 + (1 - deptAdequacy("technical"))*0.25,
+  breakdownMult:  ()=> clamp(2 - deptAdequacy("technical"), 0.55, 2),
+  pscDefMult:     ()=> clamp(1.6 - 0.6*deptAdequacy("hseq"), 0.55, 1.6),
+  vettingBonus:   ()=> (deptAdequacy("hseq") - 1)*10,
+  demurrageRate:  ()=> 0.55 + 0.45*Math.min(deptAdequacy("ops"), 1),
+  portDaMult:     ()=> 1 + (1 - deptAdequacy("ops"))*0.06,
+  bunkerMult:     ()=> 1 - Math.max(0, deptAdequacy("ops") - 1)*0.02,
+  boardMult:      ()=> 0.72 + 0.28*Math.min(deptAdequacy("chartering"), 2),
+  freightMult:    ()=> 1 + (deptAdequacy("chartering") - 1)*0.03,
+  loanMarginAdj:  ()=> -(deptAdequacy("finance") - 1)*0.004,
+  insuranceMult:  ()=> 1 - (deptAdequacy("finance") - 1)*0.08,
+  // A missing DPA is a compliance failure, not a tuning knob.
+  noDpa: ()=> (S.office||{}).mode === "inhouse" && (S.office.staff.hseq||0) < 1 && S.ships.length >= 1,
+};
+
+/* Lazy accessor. §MODEL loads before this section, but only ever calls these at
+   runtime, by which point the shore organisation exists. Falls back to neutral. */
+function shoreFx(key, dflt){
+  try { return SHORE[key](); } catch(e){ return dflt === undefined ? 1 : dflt; }
+}
+
+/* Every department at or above establishment? Used for the summary line. */
+function shoreHealth(){
+  const keys = Object.keys(DEPTS);
+  const worst = keys.reduce((w,k)=> Math.min(w, deptAdequacy(k)), 9);
+  const avg = keys.reduce((a,k)=>a+deptAdequacy(k),0)/keys.length;
+  return { worst, avg,
+    label: worst>=0.92 ? "Properly run" : worst>=0.75 ? "Stretched" : worst>=0.45 ? "Under-staffed" : "Skeleton" };
+}
+
+/* ==========================================================================
+   §SHORE SIM
+   ========================================================================= */
+function accrueShore(dt){
+  const c = shoreCostDay()*dt;
+  S.cash -= c; S.ledger.shore = (S.ledger.shore||0) + c;
+  if(S.office) S.office.spent = (S.office.spent||0) + c;
+}
+function officeUnlocked(){
+  return S.debug || (S.ships.length >= CFG.OFFICE.minShipsInhouse && S.voyagesDone >= CFG.OFFICE.unlockVoyages);
+}
+function goInhouse(){
+  if(!officeUnlocked()) return;
+  const o = S.office;
+  o.mode = "inhouse";
+  // Start from the establishment a fleet this size actually needs, so the player
+  // begins from a working organisation rather than an empty building.
+  for(const [k,d] of Object.entries(DEPTS))
+    o.staff[k] = Math.max(k==="hseq"?1:0, Math.round(deptNeed(k)));
+  o.premises = totalHeads() <= 4 ? "none" : totalHeads() <= 10 ? "small" : totalHeads() <= 28 ? "office" : "hq";
+  const setup = totalHeads()*DEPTS.crewing.salary*0; // no charge for the initial transfer
+  hideSheet(); dirty();
+  queueNote("Management taken in-house",
+    `You have ${totalHeads()} people ashore across six departments, costing ${money(shoreCostDay())} a day against ${money(managedCostDay())} for third-party management.
+     Departments are staffed to the nearest whole person, so one or two may still read short — the Office screen colours anything below establishment. Cut heads to save money and take the consequences, or add them where it pays.`, "good", true);
+}
+function goManaged(){
+  const o = S.office;
+  const cost = Object.entries(DEPTS).reduce((a,[k,d])=>a + (o.staff[k]||0)*d.salary*CFG.OFFICE.severance, 0);
+  if(cost > S.cash){ toast("Not enough cash for the severance.", "bad"); return; }
+  S.cash -= cost; S.ledger.shore = (S.ledger.shore||0)+cost;
+  o.mode = "managed";
+  for(const k of Object.keys(DEPTS)) o.staff[k] = 0;
+  o.premises = "none";
+  hideSheet(); dirty();
+  toast(`Management handed to a third party. Severance ${money(cost)}.`, "warn");
+}
+function hire(key, n){
+  const o = S.office; if(o.mode !== "inhouse") return;
+  if(n > 0){
+    if(totalHeads() + n > premisesCap()){
+      toast(`${CFG.OFFICE.premises[o.premises].name} holds ${premisesCap()} people. Take more space first.`, "bad");
+      return;
+    }
+    const cost = DEPTS[key].salary*CFG.OFFICE.hireCost*n;
+    if(cost > S.cash){ toast("Not enough cash for recruitment.", "bad"); return; }
+    S.cash -= cost; S.ledger.shore = (S.ledger.shore||0)+cost;
+    o.staff[key] = (o.staff[key]||0) + n;
+  } else {
+    const cut = Math.min(-n, o.staff[key]||0);
+    if(cut <= 0) return;
+    const cost = DEPTS[key].salary*CFG.OFFICE.severance*cut;
+    if(cost > S.cash){ toast("Not enough cash for the severance.", "bad"); return; }
+    S.cash -= cost; S.ledger.shore = (S.ledger.shore||0)+cost;
+    o.staff[key] -= cut;
+  }
+  dirty();
+}
+function setPremises(k){
+  const o = S.office;
+  if(totalHeads() > CFG.OFFICE.premises[k].cap){
+    toast(`You have ${totalHeads()} people and that space holds ${CFG.OFFICE.premises[k].cap}.`, "bad"); return;
+  }
+  o.premises = k; dirty();
+}
+
+/* Send a superintendent to attend a drydock — the classic technical decision.
+   Costs travel and ties one up, and pays for itself in cost and days. */
+function attendDrydock(shipId){
+  const sh = S.ships.find(s=>s.id===shipId); if(!sh || !sh.dd || sh.dd.attended) return;
+  if((S.office||{}).mode !== "inhouse" || (S.office.staff.technical||0) < 1){
+    toast("You have no superintendent of your own to send.", "bad"); return;
+  }
+  const cost = 24000;
+  if(cost > S.cash){ toast("Not enough cash.", "bad"); return; }
+  S.cash -= cost; S.ledger.shore = (S.ledger.shore||0)+cost;
+  sh.dd.attended = true;
+  sh.dd.left *= 0.85;
+  sh.dd.bonus = 0.08;
+  hideSheet(); dirty();
+  toast(`Superintendent attending <b>${esc(sh.name)}</b> — ${pc(0.15)} off the time in dock and a better job done.`, "good");
+}
+
+/* ==========================================================================
+   §SHORE UI
+   ========================================================================= */
+function vOffice(){
+  const o = S.office || defaultOffice();
+  const managed = o.mode !== "inhouse";
+  const h6 = shoreHealth();
+  let h = "";
+
+  if(SHORE.noDpa()) h += `<div class="card" style="border-color:var(--neg);background:rgba(224,82,82,.08)">
+    <div class="b neg">No ${T("dpa","Designated Person Ashore")}</div>
+    <div class="sm mut" style="margin-top:5px">The ${T("ism","ISM Code")} requires one. Until you have at least one person in Marine &amp; HSEQ, inspections will go badly and charterers will notice.</div></div>`;
+
+  h += `<div class="card" style="padding:14px">
+    <div class="between">
+      <div><div class="xs mut2">Shore organisation</div>
+        <div class="lg b">${managed ? T("thirdparty","Third-party managed") : h6.label}</div></div>
+      <div style="text-align:right"><div class="xs mut2">Cost</div>
+        <div class="lg b">${money(shoreCostDay())}<span class="sm mut">/day</span></div></div>
+    </div>
+    <div class="row xs mut2" style="margin-top:8px;gap:10px;flex-wrap:wrap">
+      <span>${money0(shorePerShipDay())} per ship per day</span>
+      ${managed?"":`<span>${totalHeads()} of ${premisesCap()} desks</span>`}
+      <span>${S.ships.length} ship${S.ships.length===1?"":"s"}</span>
+    </div>
+  </div>`;
+
+  if(managed){
+    h += `<div class="card">
+      <div class="sm mut">A management company crews, maintains and operates your ships for a fee taken out of each vessel's running cost. Predictable, competent, and average at everything — you are buying the absence of a problem rather than an advantage.</div>
+      <div class="kv" style="margin-top:10px"><span class="k">Fee</span><span class="v">${pc(CFG.MGMT_FEE_SHARE)} of vessel OPEX</span></div>
+      ${kv("Which is", money(managedCostDay())+"/day for this fleet")}
+    </div>`;
+    if(officeUnlocked()){
+      const est = estimateInhouse();
+      h += `<h2 class="sect">Take it in-house</h2><div class="card">
+        <div class="sm mut">Run your own office and you set the establishment yourself. Properly staffed it costs about the same and does everything better; run lean and it is cheaper, with consequences you will meet later.</div>
+        ${kv("Estimated at establishment", money(est.cost)+"/day", est.cost<=managedCostDay()?"pos":"haz")}
+        ${kv("Against third-party", money(managedCostDay())+"/day")}
+        ${kv("Headcount", est.heads+" across six departments")}
+        ${kv("Beats a manager from about", inhouseBreakEven()+" ships", S.ships.length>=inhouseBreakEven()?"pos":"haz")}
+      </div>
+      <button class="btn pri" onclick="goInhouse()">Take management in-house</button>`;
+    } else {
+      h += `<div class="lock" style="padding:28px 22px"><div class="big">🏢</div>
+        <div class="t">Your own office</div>
+        <div class="sm" style="max-width:300px;margin:0 auto">Six departments of your own opens at ${CFG.OFFICE.minShipsInhouse} ships and ${CFG.OFFICE.unlockVoyages} voyages, and only really pays from about ${inhouseBreakEven()} ships — a small office still needs a crewing officer and a superintendent, so the cost per ship is brutal until you have ships to spread it over. That is exactly why small owners use a manager.</div>
+        <div class="pill" style="margin-top:14px">${S.ships.length}/${CFG.OFFICE.minShipsInhouse} ships · ${S.voyagesDone}/${CFG.OFFICE.unlockVoyages} voyages</div></div>`;
+    }
+    return h;
+  }
+
+  h += `<h2 class="sect">Departments</h2>`;
+  for(const [k,d] of Object.entries(DEPTS)) h += deptCard(k, d);
+
+  const p = CFG.OFFICE.premises[o.premises];
+  h += `<h2 class="sect">Premises</h2><div class="card tap" onclick="sheetPremises()">
+    <div class="between"><div><div class="b">${p.name}</div>
+      <div class="xs mut2">${totalHeads()} of ${p.cap} desks used</div></div>
+    <div style="text-align:right"><div class="b">${p.fixed?money(p.fixed/365)+"/d":"included"}</div></div></div>
+    <div class="bar ${totalHeads()>=p.cap?"bad":totalHeads()>p.cap*0.8?"warn":""}" style="margin-top:9px">
+      <i style="width:${pc(clamp(totalHeads()/p.cap,0,1))}"></i></div></div>`;
+
+  h += `<h2 class="sect">Cost</h2><div class="card">
+    ${Object.entries(DEPTS).map(([k,d])=>(o.staff[k]||0)>0
+      ? kv(d.name+" × "+o.staff[k], money0((o.staff[k]*d.salary)/365)+"/d") : "").join("")}
+    ${kv("Desks, IT, travel", money0(totalHeads()*CFG.OFFICE.perHeadOverhead/365)+"/d")}
+    ${p.fixed?kv("Premises", money0(p.fixed/365)+"/d"):""}
+    ${kvt("Total ashore", money0(shoreCostDay())+"/d")}
+    ${kv("Third-party would charge", money0(managedCostDay())+"/d",
+        shoreCostDay()<=managedCostDay()?"pos":"neg")}
+    <button class="btn sm dang" style="width:100%;margin-top:10px" onclick="sheetGoManaged()">Hand back to a manager</button>
+  </div>`;
+  return h;
+}
+
+function estimateInhouse(){
+  let salaries = 0, heads = 0;
+  for(const [k,d] of Object.entries(DEPTS)){
+    const n = Math.max(k==="hseq"?1:0, Math.round(deptNeed(k)));
+    heads += n; salaries += n*d.salary;
+  }
+  const prem = heads<=4?"none":heads<=10?"small":heads<=28?"office":"hq";
+  return { heads, cost:(salaries + heads*CFG.OFFICE.perHeadOverhead + CFG.OFFICE.premises[prem].fixed)/365 };
+}
+
+function deptCard(k, d){
+  const a = deptAdequacy(k);
+  const n = (S.office.staff[k]||0);
+  const need = deptNeed(k);
+  const cls = a>=0.92 ? "pos" : a>=0.75 ? "warn" : "bad";
+  return `<div class="card tap" onclick="sheetDept('${k}')">
+    <div class="between"><div class="grow">
+      <div class="b">${d.icon} ${d.name}</div>
+      <div class="xs mut2">${d.effect}</div>
+    </div><div style="text-align:right;flex:none">
+      <div class="lg b">${n}</div>
+      <div class="xs mut2">need ${need.toFixed(1)}</div>
+    </div></div>
+    <div class="bar ${cls}" style="margin-top:9px"><i style="width:${pc(clamp(a/1.5,0,1))}"></i></div>
+    <div class="row xs" style="margin-top:6px;gap:8px">
+      <span class="${cls==="pos"?"pos":cls==="warn"?"haz":"neg"}">${a>=0.92?"At establishment":a>=0.75?"Stretched":a>=0.45?"Under-staffed":"Skeleton"}</span>
+      <span class="mut2" style="margin-left:auto">${money0(n*d.salary/365)}/d</span>
+    </div></div>`;
+}
+
+function sheetDept(k){
+  const d = DEPTS[k], a = deptAdequacy(k), n = S.office.staff[k]||0;
+  const need = deptNeed(k);
+  const hireC = d.salary*CFG.OFFICE.hireCost, sevC = d.salary*CFG.OFFICE.severance;
+  showSheet(d.icon+" "+d.name, `${n} in post · ${need.toFixed(1)} needed for ${S.ships.length} ship${S.ships.length===1?"":"s"}`,
+    `<div class="card" style="margin:0 0 12px"><div class="sm mut">${d.blurb}</div></div>
+     <h2 class="sect" style="margin-top:0">Effect at this staffing</h2><div class="card" style="margin:0">
+      ${d.detail(a).map(([label,val,bad])=>kv(label, val, bad?"neg":"pos")).join("")}
+      ${kv(T("spanctrl","Span of control"), `1 person per ${(1/(d.ratio*scaleFactor(S.ships.length))).toFixed(1)} ships at this fleet size`)}
+     </div>
+     <h2 class="sect">Headcount</h2><div class="card" style="margin:0">
+      ${kv("In post", n)}
+      ${kv("Establishment", need.toFixed(1))}
+      ${kv("Salary", money0(d.salary)+" each per year")}
+      ${kv("Costing", money0(n*d.salary/365)+"/day")}
+      <div class="row" style="gap:6px;margin-top:10px">
+        <button class="btn sm" ${n<1?"disabled":""} onclick="hire('${k}',-1);sheetDept('${k}')">− Let one go (${money(sevC)})</button>
+        <button class="btn sm pri" onclick="hire('${k}',1);sheetDept('${k}')">+ Recruit (${money(hireC)})</button>
+      </div>
+     </div>`);
+}
+function sheetPremises(){
+  showSheet("Premises", `${totalHeads()} people`,
+    Object.entries(CFG.OFFICE.premises).map(([k,p])=>{
+      const cur = S.office.premises===k, tooSmall = totalHeads()>p.cap;
+      return `<div class="card" style="margin-bottom:8px;${cur?"border-color:var(--acc)":""}">
+        <div class="between"><div class="b">${p.name}${cur?' <span class="pill on">Current</span>':""}</div>
+          <div class="b">${p.fixed?money(p.fixed/365)+"/d":"no rent"}</div></div>
+        <div class="xs mut" style="margin-top:4px">${p.note}</div>
+        <div class="xs mut2" style="margin-top:4px">Holds ${p.cap} people</div>
+        ${cur?"":`<button class="btn sm" style="width:100%;margin-top:9px" ${tooSmall?"disabled":""}
+          onclick="setPremises('${k}');sheetPremises()">${tooSmall?`Too small for ${totalHeads()} people`:"Move here"}</button>`}
+      </div>`;
+    }).join(""));
+}
+function sheetGoManaged(){
+  const cost = Object.entries(DEPTS).reduce((a,[k,d])=>a+(S.office.staff[k]||0)*d.salary*CFG.OFFICE.severance,0);
+  showSheet("Hand back to a manager", `${totalHeads()} people would go`,
+    `<div class="card" style="margin:0">
+      ${kv("Severance", money(cost), "neg")}
+      ${kv("Your shore cost now", money(shoreCostDay())+"/day")}
+      ${kv("Third-party fee", money(managedCostDay())+"/day")}
+     </div>
+     <div class="card" style="margin-top:12px"><div class="sm mut">A manager is average at everything, for a predictable fee. You give up the upside of running a tight technical department and the downside of running a poor one.</div></div>`,
+    `<button class="btn dang" ${cost>S.cash?"disabled":""} onclick="goManaged()">${cost>S.cash?"Not enough cash for severance":"Hand over — "+money(cost)}</button>`);
 }
 /* ##########################################################################
    §BOOT
