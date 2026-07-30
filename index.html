@@ -1,0 +1,2595 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1">
+<meta name="theme-color" content="#0B1622">
+<title>Kription — Shipping Tycoon</title>
+<style>
+/* ============================================================================
+   PALETTE / RESET
+   ========================================================================= */
+:root{
+  --bg:#0B1622; --surf:#132433; --surf2:#182E40; --line:#1E3648; --line2:#274A63;
+  --txt:#E6EDF3; --mut:#7D96AC; --mut2:#5A748A;
+  --pos:#3FB27F; --neg:#E05252; --haz:#F08A24; --acc:#4A9EDA;
+  --sat:44px;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0;height:100%;overscroll-behavior:none}
+body{
+  background:var(--bg);color:var(--txt);
+  font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  -webkit-font-smoothing:antialiased;
+}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+.tnum{font-variant-numeric:tabular-nums;font-feature-settings:"tnum"}
+
+/* ============================================================================
+   PHONE FRAME — portrait first, centred column on desktop
+   ========================================================================= */
+#app{
+  max-width:430px;margin:0 auto;min-height:100%;
+  display:flex;flex-direction:column;position:relative;
+  background:var(--bg);
+}
+@media(min-width:520px){
+  body{background:#060D14}
+  #app{border-left:1px solid var(--line);border-right:1px solid var(--line);min-height:100vh}
+}
+
+/* ---- top bar ---- */
+#top{
+  position:sticky;top:0;z-index:40;background:rgba(11,22,34,.94);
+  backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+  border-bottom:1px solid var(--line);
+  padding:calc(env(safe-area-inset-top) + 8px) 12px 8px;
+}
+#top .row{display:flex;align-items:center;gap:10px}
+#top .kpi{flex:1;min-width:0}
+#top .kpi .lbl{font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--mut2);white-space:nowrap}
+#top .kpi .val{font-size:16px;font-weight:650;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#clockbtn{
+  min-width:56px;height:var(--sat);padding:0 8px;border-radius:10px;
+  background:var(--surf);border:1px solid var(--line);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;
+}
+#clockbtn .d{font-size:9.5px;color:var(--mut);letter-spacing:.02em}
+#clockbtn .s{font-size:13px;font-weight:700;color:var(--acc)}
+#clockbtn.paused .s{color:var(--haz)}
+
+/* ---- scroll region ---- */
+#screen{
+  flex:1;padding:12px 12px calc(env(safe-area-inset-bottom) + 78px);
+  -webkit-overflow-scrolling:touch;
+}
+
+/* ---- bottom tabs ---- */
+#tabs{
+  position:fixed;left:0;right:0;bottom:0;z-index:45;
+  max-width:430px;margin:0 auto;
+  background:rgba(11,22,34,.96);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+  border-top:1px solid var(--line);
+  display:flex;padding-bottom:env(safe-area-inset-bottom);
+}
+#tabs button{
+  flex:1;min-height:var(--sat);padding:7px 2px 8px;
+  display:flex;flex-direction:column;align-items:center;gap:3px;
+  color:var(--mut2);position:relative;
+}
+#tabs button .ic{width:22px;height:22px;display:block}
+#tabs button .tl{font-size:10px;letter-spacing:.02em;font-weight:600}
+#tabs button[aria-selected="true"]{color:var(--acc)}
+#tabs button .dot{
+  position:absolute;top:5px;right:calc(50% - 17px);width:7px;height:7px;border-radius:50%;
+  background:var(--haz);border:1.5px solid var(--bg);
+}
+
+/* ============================================================================
+   PRIMITIVES
+   ========================================================================= */
+h2.sect{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--mut2);
+  margin:20px 2px 8px;font-weight:700}
+h2.sect:first-child{margin-top:2px}
+
+.card{
+  background:var(--surf);border:1px solid var(--line);border-radius:14px;
+  padding:13px;margin-bottom:10px;position:relative;
+}
+.card.tap{cursor:pointer;transition:background .12s}
+.card.tap:active{background:var(--surf2)}
+
+.btn{
+  display:flex;align-items:center;justify-content:center;gap:7px;
+  min-height:var(--sat);width:100%;border-radius:12px;font-weight:650;font-size:15px;
+  background:var(--surf2);border:1px solid var(--line2);
+}
+.btn:active{filter:brightness(1.18)}
+.btn.pri{background:var(--acc);border-color:var(--acc);color:#04121E}
+.btn.pos{background:var(--pos);border-color:var(--pos);color:#04120C}
+.btn.dang{background:transparent;border-color:var(--neg);color:var(--neg)}
+.btn.sm{min-height:36px;font-size:13.5px;border-radius:10px;width:auto;padding:0 14px}
+.btn:disabled{opacity:.4}
+.btn.pulse{animation:pulse 1.9s ease-in-out infinite}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(74,158,218,.42)}50%{box-shadow:0 0 0 9px rgba(74,158,218,0)}}
+
+.row{display:flex;align-items:center;gap:10px}
+.between{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.grow{flex:1;min-width:0}
+.trunc{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mut{color:var(--mut)}.mut2{color:var(--mut2)}
+.pos{color:var(--pos)}.neg{color:var(--neg)}.haz{color:var(--haz)}.acc{color:var(--acc)}
+.xs{font-size:11px}.sm{font-size:12.5px}.lg{font-size:19px}.xl{font-size:27px}
+.b{font-weight:650}.bb{font-weight:750}
+.mono{font-variant-numeric:tabular-nums}
+
+.pill{
+  display:inline-flex;align-items:center;gap:4px;padding:2.5px 8px;border-radius:20px;
+  font-size:10.5px;font-weight:700;letter-spacing:.03em;
+  background:var(--surf2);color:var(--mut);border:1px solid var(--line);
+}
+.pill.on{background:rgba(63,178,127,.14);color:var(--pos);border-color:rgba(63,178,127,.32)}
+.pill.warn{background:rgba(240,138,36,.14);color:var(--haz);border-color:rgba(240,138,36,.32)}
+.pill.bad{background:rgba(224,82,82,.14);color:var(--neg);border-color:rgba(224,82,82,.32)}
+.pill.idle{background:rgba(74,158,218,.12);color:var(--acc);border-color:rgba(74,158,218,.3)}
+
+.bar{height:5px;border-radius:3px;background:var(--line);overflow:hidden}
+.bar i{display:block;height:100%;background:var(--acc);border-radius:3px;transition:width .3s}
+.bar.pos i{background:var(--pos)} .bar.warn i{background:var(--haz)} .bar.bad i{background:var(--neg)}
+
+.seg{display:flex;gap:4px;background:var(--surf);border:1px solid var(--line);
+  border-radius:11px;padding:3px;margin-bottom:12px}
+.seg button{flex:1;min-height:36px;border-radius:8px;font-size:13px;font-weight:650;color:var(--mut)}
+.seg button[aria-selected="true"]{background:var(--surf2);color:var(--txt)}
+
+.kv{display:flex;justify-content:space-between;gap:12px;padding:7px 0;
+  border-bottom:1px solid rgba(30,54,72,.6);font-size:13.5px}
+.kv:last-child{border-bottom:0}
+.kv .k{color:var(--mut);min-width:0}
+.kv .v{font-variant-numeric:tabular-nums;font-weight:600;text-align:right;white-space:nowrap}
+.kv.tot{border-top:1px solid var(--line2);border-bottom:0;margin-top:4px;padding-top:9px;font-size:14.5px}
+.kv.tot .k{color:var(--txt);font-weight:650}
+
+/* term — inline glossary affordance */
+.term{border-bottom:1px dotted var(--mut2);cursor:pointer}
+.term::after{content:"\00a0ⓘ";font-size:.78em;color:var(--mut2);border:0}
+.term.fresh{color:var(--acc);border-bottom-color:var(--acc)}
+.term.fresh::after{color:var(--acc)}
+
+.empty{text-align:center;padding:38px 20px;color:var(--mut2)}
+.empty .big{font-size:34px;margin-bottom:10px;opacity:.5}
+
+.lock{text-align:center;padding:46px 22px;color:var(--mut2)}
+.lock .big{font-size:32px;opacity:.4;margin-bottom:12px}
+.lock .t{color:var(--mut);font-weight:650;font-size:15px;margin-bottom:6px}
+
+/* ============================================================================
+   BOTTOM SHEET
+   ========================================================================= */
+#scrim{
+  position:fixed;inset:0;z-index:60;background:rgba(4,10,16,.66);
+  opacity:0;pointer-events:none;transition:opacity .22s;
+  backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);
+}
+#scrim.on{opacity:1;pointer-events:auto}
+#sheet{
+  position:fixed;left:0;right:0;bottom:0;z-index:61;max-width:430px;margin:0 auto;
+  background:var(--surf);border:1px solid var(--line);border-bottom:0;
+  border-radius:20px 20px 0 0;max-height:88vh;display:flex;flex-direction:column;
+  transform:translateY(102%);transition:transform .27s cubic-bezier(.2,.8,.2,1);
+}
+#sheet.on{transform:translateY(0)}
+#sheet .grab{padding:9px 0 3px;display:flex;justify-content:center;flex:none}
+#sheet .grab i{width:38px;height:4px;border-radius:2px;background:var(--line2);display:block}
+#sheet .shead{padding:2px 16px 10px;flex:none;border-bottom:1px solid var(--line)}
+#sheet .shead .t{font-size:17px;font-weight:700;letter-spacing:-.01em}
+#sheet .shead .s{font-size:12.5px;color:var(--mut);margin-top:2px}
+#sheet .sbody{
+  padding:12px 16px calc(env(safe-area-inset-bottom) + 16px);
+  overflow-y:auto;-webkit-overflow-scrolling:touch;flex:1;
+}
+#sheet .sfoot{
+  padding:10px 16px calc(env(safe-area-inset-bottom) + 12px);
+  border-top:1px solid var(--line);flex:none;background:var(--surf);
+}
+
+/* ============================================================================
+   COACH (onboarding callout)
+   ========================================================================= */
+#coach{
+  position:fixed;left:12px;right:12px;bottom:calc(env(safe-area-inset-bottom) + 84px);
+  z-index:55;max-width:406px;margin:0 auto;
+  background:var(--acc);color:#04121E;border-radius:14px;padding:13px 14px;
+  box-shadow:0 12px 32px rgba(0,0,0,.5);
+  transform:translateY(14px);opacity:0;pointer-events:none;transition:all .25s;
+}
+#coach.on{transform:translateY(0);opacity:1;pointer-events:auto}
+#coach .ct{font-weight:750;font-size:14px;margin-bottom:3px}
+#coach .cb{font-size:13.5px;line-height:1.42;opacity:.86}
+#coach button{margin-top:10px;background:rgba(4,18,30,.14);border-radius:9px;
+  min-height:36px;padding:0 15px;font-weight:750;font-size:13px;float:right}
+
+/* ============================================================================
+   TOAST
+   ========================================================================= */
+#toasts{position:fixed;left:12px;right:12px;top:calc(env(safe-area-inset-top) + 62px);
+  z-index:70;max-width:406px;margin:0 auto;pointer-events:none}
+.toast{
+  background:var(--surf2);border:1px solid var(--line2);border-radius:12px;
+  padding:10px 13px;margin-bottom:7px;font-size:13.5px;
+  box-shadow:0 8px 24px rgba(0,0,0,.44);
+  animation:tin .28s ease both;
+}
+.toast.good{border-color:rgba(63,178,127,.5)}
+.toast.bad{border-color:rgba(224,82,82,.5)}
+.toast.warn{border-color:rgba(240,138,36,.5)}
+@keyframes tin{from{transform:translateY(-10px);opacity:0}to{transform:none;opacity:1}}
+
+/* ============================================================================
+   CHART
+   ========================================================================= */
+svg.spark{display:block;width:100%;height:38px;overflow:visible}
+svg.chart{display:block;width:100%;height:150px;overflow:visible}
+svg .gl{stroke:var(--line);stroke-width:1}
+svg .ax{fill:var(--mut2);font-size:9px}
+
+input[type=range]{
+  -webkit-appearance:none;appearance:none;width:100%;height:var(--sat);background:transparent;
+}
+input[type=range]::-webkit-slider-runnable-track{height:6px;border-radius:3px;background:var(--line)}
+input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none;width:26px;height:26px;border-radius:50%;background:var(--acc);
+  margin-top:-10px;border:3px solid var(--surf);box-shadow:0 1px 5px rgba(0,0,0,.5);
+}
+input[type=range]::-moz-range-track{height:6px;border-radius:3px;background:var(--line)}
+input[type=range]::-moz-range-thumb{width:22px;height:22px;border:3px solid var(--surf);
+  border-radius:50%;background:var(--acc)}
+
+#banner{
+  background:rgba(240,138,36,.15);border:1px solid rgba(240,138,36,.4);color:var(--haz);
+  border-radius:11px;padding:9px 12px;font-size:12.5px;margin-bottom:11px;display:none;
+}
+#ver{display:inline-block;padding:6px 2px;color:var(--mut2);font-size:11px;user-select:none}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="top">
+    <div class="row">
+      <div class="kpi"><div class="lbl">Cash</div><div class="val tnum" id="k-cash">—</div></div>
+      <div class="kpi"><div class="lbl">Net / day</div><div class="val tnum" id="k-net">—</div></div>
+      <div class="kpi" style="flex:.72"><div class="lbl">Util</div><div class="val tnum" id="k-util">—</div></div>
+      <button id="clockbtn" aria-label="Game speed"><span class="d" id="k-date">—</span><span class="s" id="k-spd">1×</span></button>
+    </div>
+  </div>
+  <div id="screen"></div>
+</div>
+<nav id="tabs" role="tablist"></nav>
+<div id="scrim"></div>
+<div id="sheet" role="dialog" aria-modal="true">
+  <div class="grab"><i></i></div>
+  <div class="shead"><div class="t" id="sh-t"></div><div class="s" id="sh-s"></div></div>
+  <div class="sbody" id="sh-b"></div>
+  <div class="sfoot" id="sh-f" style="display:none"></div>
+</div>
+<div id="coach"><div class="ct" id="co-t"></div><div class="cb" id="co-b"></div><button id="co-ok">Got it</button><div style="clear:both"></div></div>
+<div id="toasts"></div>
+<script>
+"use strict";
+/* ############################################################################
+   §CONSTANTS — every tunable lives here. Nothing below this block invents a
+   number. Sources are contemporary (2025/26) market conditions; each entry
+   carries the range I'd expect it to move within so it can be retuned without
+   reading a line of UI code.
+   ######################################################################### */
+
+const CFG = {
+  VERSION: "0.1.0-p1",
+  SAVE_KEY: "kription.save.v1",
+
+  /* --- time -------------------------------------------------------------- */
+  SEC_PER_DAY: 5,          // 1 game day = 5 real seconds at 1x
+  SPEEDS: [1, 2, 4, 8],
+  START_EPOCH: Date.UTC(2026, 0, 6),   // Tue 6 Jan 2026
+  MAX_STEP_DAYS: 0.5,      // sim integration granularity
+
+  /* --- offline ----------------------------------------------------------- */
+  // Ships complete the voyage they are on and then go IDLE — decisions are
+  // deferred, never auto-resolved. That bounds offline gain naturally; the cap
+  // below exists so OPEX/market don't run away over a long absence.
+  OFFLINE_CAP_DAYS: 90,
+  AUTOSAVE_MS: 10000,
+
+  /* --- opening position -------------------------------------------------- */
+  START_CASH: 650000,
+  START_SHIP: { cls: "handysize", name: "Kription Trader", built: 2004, port: "riga",
+                ltv: 0.60, rate: 0.070, termYears: 12 },
+
+  /* --- finance ----------------------------------------------------------- */
+  COMM_ADDRESS: 0.025,     // address commission to charterer, 2.5% typical
+  COMM_BROKER:  0.0125,    // brokerage 1.25%
+  OPEX_AGE_SLOPE: 0.012,   // +1.2%/yr of OPEX per year over 10; older = dearer
+
+  /* --- bunkers ----------------------------------------------------------- */
+  // Base prices $/mt at the reference hub; per-port offsets in PORTS.bunker.
+  // 2025 ranges: VLSFO 480-620, MGO 660-820, HSFO 400-500.
+  FUEL: {
+    vlsfo: { name: "VLSFO", base: 515, co2: 3.151, ghg: 91.6, eca: false },
+    mgo:   { name: "MGO",   base: 690, co2: 3.206, ghg: 90.8, eca: true  },
+    hsfo:  { name: "HSFO",  base: 425, co2: 3.114, ghg: 91.7, eca: false, scrubber: true },
+  },
+  EMERGENCY_LIFT_PREMIUM: 0.08,   // bunkering in a hurry costs more
+
+  /* --- carbon ------------------------------------------------------------ */
+  ETS_PHASE: 1.00,         // 2026 onward: 100% of the chargeable share
+  EUA_EUR: 72,             // €/t CO2
+  EUR_USD: 1.08,
+  FUELEU_TARGET: 89.34,    // gCO2e/MJ, 2025-2029 (-2% on the 91.16 baseline)
+  FUELEU_PENALTY_EUR: 2400,// € per tonne VLSFO-equivalent energy deficit
+  MJ_PER_MT: 41000,
+
+  /* --- freight market --------------------------------------------------- */
+  // Index 100 == mid-cycle. Amplitude 0.55 gives a 45..155 band, which is a
+  // fair likeness of how far dry bulk actually travels peak-to-trough.
+  MKT: {
+    cycleDays: 1650,       // ~4.5yr wave
+    amp: 0.55,
+    ar: 0.965,             // AR(1) persistence of the noise term
+    shock: 0.030,          // daily innovation sd
+    min: 32, max: 260,
+    startIndex: 112,       // opening market: a shade above mid-cycle
+    histEvery: 5,          // sample the index every N days for charts
+    histMax: 400,
+  },
+  FIXTURE_REFRESH_DAYS: 6, // the board turns over roughly weekly
+  FIXTURE_NOISE: 0.10,     // ±10% dispersion between competing brokers
+
+  /* --- progressive disclosure -------------------------------------------- */
+  // Nothing appears before the player has a reason to care about it (§6).
+  UNLOCK: {
+    bunkers:  3,   // lift quantity + port price differentials
+    ballast:  4,   // the empty leg becomes visible and costed
+    eca:      5,   // fuel switching inside emission control areas
+    speed:    6,   // the speed/consumption trade-off
+    market:   8,   // index history, bunker prices by port
+    demurrage:10,  // laytime, demurrage and despatch
+  },
+};
+
+/* ----------------------------------------------------------------------------
+   VESSEL CLASSES
+   consLaden is TOTAL mt/day at designSpeed. The model splits it into a fixed
+   auxiliary load (auxSea) plus a propulsion term that scales with the cube of
+   speed — real curves flatten at low speed because hotel/aux load does not
+   scale, and pure-cube would flatter slow steaming.
+   tpc = tonnes per cm immersion (stored, not derived — the usual formulae are
+   badly wrong across this size range).
+   grainCubic m3 with the cargo stowage factor is what actually limits light
+   cargoes; ore is deadweight-limited. Both constraints are live.
+------------------------------------------------------------------------------- */
+const CLASSES = {
+  handysize:   { name:"Handysize",    seg:"dry", idx:"handy", dwt:28200,  gt:20000,  tpc:38,
+                 grainCubic:37000,  designSpeed:14.0, consLaden:24, auxSea:2.0, auxPort:3.0,
+                 minSpeed:9, maxSpeed:15, draft:10.2, beam:23.0, loa:180, geared:true, swl:30,
+                 fuelCap:1200, ldt:6800,  nb:27e6,  sh15:8.0e6,  opexBase:4300, life:25 },
+  handymax:    { name:"Handymax",     seg:"dry", idx:"handy", dwt:47000,  gt:27000,  tpc:50,
+                 grainCubic:60000,  designSpeed:14.0, consLaden:27, auxSea:2.2, auxPort:3.2,
+                 minSpeed:9, maxSpeed:15, draft:11.7, beam:30.0, loa:190, geared:true, swl:30,
+                 fuelCap:1600, ldt:9200,  nb:31e6,  sh15:12e6,   opexBase:4700, life:25 },
+  supramax:    { name:"Supramax",     seg:"dry", idx:"handy", dwt:58000,  gt:33000,  tpc:58,
+                 grainCubic:72000,  designSpeed:14.0, consLaden:30, auxSea:2.4, auxPort:3.4,
+                 minSpeed:9, maxSpeed:15, draft:12.8, beam:32.3, loa:200, geared:true, swl:30,
+                 fuelCap:1900, ldt:10500, nb:34e6,  sh15:15e6,   opexBase:4800, life:25 },
+  kamsarmax:   { name:"Kamsarmax",    seg:"dry", idx:"pmx",   dwt:82000,  gt:43000,  tpc:72,
+                 grainCubic:97000,  designSpeed:14.0, consLaden:34, auxSea:2.6, auxPort:2.6,
+                 minSpeed:9, maxSpeed:15, draft:14.4, beam:32.26,loa:229, geared:false,
+                 fuelCap:2400, ldt:12800, nb:36e6,  sh15:18e6,   opexBase:5100, life:25 },
+  postpanamax: { name:"Post-Panamax", seg:"dry", idx:"pmx",   dwt:93000,  gt:48000,  tpc:78,
+                 grainCubic:106000, designSpeed:14.0, consLaden:36, auxSea:2.7, auxPort:2.7,
+                 minSpeed:9, maxSpeed:15, draft:14.9, beam:38.0, loa:235, geared:false,
+                 fuelCap:2600, ldt:14000, nb:39e6,  sh15:20e6,   opexBase:5300, life:25 },
+  capesize:    { name:"Capesize",     seg:"dry", idx:"cape",  dwt:180000, gt:92000,  tpc:148,
+                 grainCubic:200000, designSpeed:14.5, consLaden:52, auxSea:4.0, auxPort:4.0,
+                 minSpeed:9, maxSpeed:15.5, draft:18.2, beam:45.0, loa:292, geared:false,
+                 fuelCap:4500, ldt:22000, nb:65e6,  sh15:26e6,   opexBase:6000, life:25 },
+  newcastlemax:{ name:"Newcastlemax", seg:"dry", idx:"cape",  dwt:208000, gt:105000, tpc:160,
+                 grainCubic:220000, designSpeed:14.5, consLaden:56, auxSea:4.2, auxPort:4.2,
+                 minSpeed:9, maxSpeed:15.5, draft:18.5, beam:50.0, loa:300, geared:false,
+                 fuelCap:5200, ldt:24500, nb:72e6,  sh15:32e6,   opexBase:6300, life:25 },
+  vloc:        { name:"VLOC",         seg:"dry", idx:"cape",  dwt:325000, gt:165000, tpc:200,
+                 grainCubic:340000, designSpeed:14.0, consLaden:70, auxSea:5.0, auxPort:5.0,
+                 minSpeed:9, maxSpeed:15, draft:23.0, beam:60.0, loa:340, geared:false,
+                 fuelCap:8000, ldt:38000, nb:125e6, sh15:52e6,   opexBase:7300, life:25 },
+};
+
+/* ----------------------------------------------------------------------------
+   CARGOES
+   sf   = stowage factor m3/mt (wheat ~1.30, iron ore ~0.40 — the reason a
+          Handysize cannot fill up on logs and an ore trade is a deadweight game)
+   load/disch = terminal rates mt/day at a reference terminal, scaled by the
+          port's own rateFactor. These directly set port days, which directly
+          set TCE — the figures I trust least in the whole model.
+------------------------------------------------------------------------------- */
+const CARGOES = {
+  wheat:   { name:"Milling wheat",  grp:"grain", sf:1.30, load:12000, disch:8000  },
+  corn:    { name:"Corn",           grp:"grain", sf:1.42, load:12000, disch:8000  },
+  soybean: { name:"Soybeans",       grp:"grain", sf:1.36, load:14000, disch:9000  },
+  barley:  { name:"Feed barley",    grp:"grain", sf:1.34, load:11000, disch:7500  },
+  ironore: { name:"Iron ore",       grp:"ore",   sf:0.40, load:60000, disch:35000 },
+  bauxite: { name:"Bauxite",        grp:"ore",   sf:0.75, load:25000, disch:15000 },
+  coal:    { name:"Thermal coal",   grp:"coal",  sf:1.25, load:30000, disch:20000 },
+  cokecoal:{ name:"Coking coal",    grp:"coal",  sf:1.18, load:30000, disch:20000 },
+  scrap:   { name:"HMS 1&2 scrap",  grp:"scrap", sf:1.05, load:7000,  disch:6000  },
+  steel:   { name:"Steel products", grp:"steel", sf:0.60, load:4000,  disch:3500  },
+  urea:    { name:"Urea in bulk",   grp:"fert",  sf:1.20, load:8000,  disch:5000  },
+  potash:  { name:"Potash",         grp:"fert",  sf:0.95, load:10000, disch:6500  },
+  cement:  { name:"Cement clinker", grp:"cem",   sf:0.85, load:6000,  disch:4000  },
+  sugar:   { name:"Raw sugar",      grp:"agri",  sf:1.28, load:10000, disch:6000  },
+  salt:    { name:"Salt",           grp:"min",   sf:0.95, load:12000, disch:8000  },
+  logs:    { name:"Logs",           grp:"forest",sf:2.20, load:3000,  disch:2500  },
+};
+
+/* ----------------------------------------------------------------------------
+   SEA ROUTING NETWORK
+   Ports attach to hubs; hubs interconnect. Distances are nautical miles over
+   water and shortest path is Dijkstra, so Suez-vs-Cape falls out of the graph
+   rather than being scripted. A hub network overstates true great-circle
+   routings by roughly 3-8% on the longest legs (Tubarao-Qingdao computes
+   ~11.6k against a real ~11.0k) — acceptable, and consistently so.
+   eca = fraction of that leg inside an Emission Control Area (MGO required).
+------------------------------------------------------------------------------- */
+const HUBS = [
+  "BALTICS","SKAW","DOVER","USHANT","FINIS","GIB","MEDW","SICILY","EMED","BOSPHORUS","PORTSAID","SUEZS",
+  "BAB","HORMUZ","DONDRA","MALACCA","GOODHOPE","CANARY","DAKARW","RECIFE","HORN",
+  "CRISTOBAL","BALBOA","YUCATAN","FLSTRAIT","MONA","HATTERAS","TAIWAN","NWSHELF","SYDNEYE",
+];
+
+// [a, b, nm, ecaFraction]
+const HUB_EDGES = [
+  ["BALTICS","SKAW",480,1.0], ["BOSPHORUS","EMED",420,0.6], ["EMED","PORTSAID",330,1.0],
+  ["EMED","SICILY",620,1.0],
+   ["GIB","MEDW",600,1.0], ["MEDW","SICILY",480,1.0],
+  ["SKAW","DOVER",480,1.0], ["DOVER","USHANT",250,1.0], ["USHANT","FINIS",380,0.0],
+  ["FINIS","GIB",500,0.0],  ["GIB","SICILY",980,1.0],   ["SICILY","BOSPHORUS",780,1.0],
+  ["SICILY","PORTSAID",1010,1.0], ["PORTSAID","SUEZS",100,1.0],
+  ["SUEZS","BAB",1300,0.0], ["BAB","HORMUZ",1700,0.0],
+  ["BAB","MALACCA",3500,0.0], ["HORMUZ","MALACCA",3200,0.0],
+  ["MALACCA","DONDRA",1570,0.0], ["DONDRA","HORMUZ",1450,0.0], ["DONDRA","BAB",2100,0.0],
+  ["GIB","CANARY",700,0.15], ["USHANT","CANARY",1350,0.15],
+  ["CANARY","DAKARW",700,0.0], ["DAKARW","RECIFE",1900,0.0], ["CANARY","RECIFE",2450,0.0],
+  ["DAKARW","GOODHOPE",3300,0.0], ["RECIFE","GOODHOPE",3100,0.0],
+  ["GOODHOPE","MALACCA",5200,0.0], ["GOODHOPE","NWSHELF",4600,0.0],
+  ["CANARY","MONA",2700,0.0], ["MONA","RECIFE",2700,0.0], ["MONA","FLSTRAIT",1000,0.30],
+  ["FLSTRAIT","HATTERAS",700,1.0], ["HATTERAS","USHANT",3050,0.25],
+  ["FLSTRAIT","YUCATAN",700,1.0], ["YUCATAN","CRISTOBAL",1150,0.30],
+  ["MONA","CRISTOBAL",1100,0.20], ["CRISTOBAL","BALBOA",45,0.0],
+  ["BALBOA","MALACCA",9900,0.0], ["BALBOA","TAIWAN",8200,0.0],
+  ["RECIFE","HORN",3500,0.0], ["HORN","BALBOA",4300,0.0],
+  ["MALACCA","TAIWAN",1650,0.0], ["MALACCA","NWSHELF",2300,0.0],
+  ["NWSHELF","TAIWAN",2750,0.0], ["NWSHELF","SYDNEYE",3100,0.0],
+  ["SYDNEYE","TAIWAN",4000,0.0],
+];
+
+/* ----------------------------------------------------------------------------
+   PORTS
+   da        = disbursement account base $ for a 20,000 GT vessel; scaled by
+               (gt/20000)^0.55 in the model. Dues + pilotage x2 + towage +
+               agency + linesmen. Regional spread is real and large: Aliaga
+               $16k against Onne/Lagos $48k and Up-River Parana $55k.
+   rateFactor= terminal productivity multiplier on the cargo's base rate.
+   shoreGear = false means the ship must be geared to work there.
+   eca       = berth lies inside an ECA, so port time burns MGO.
+   bunker    = per-grade $/mt offset from CFG.FUEL base; null = not available.
+   liq       = onward-market liquidity 0..1. Discharging into a thin market is
+               the quiet way to destroy a quarter's earnings, so the player is
+               told it plainly rather than being made to guess.
+------------------------------------------------------------------------------- */
+const PORTS = {
+  // ---- Baltic (all inside the Baltic + North Sea ECA) --------------------
+  riga:      { name:"Riga",        cc:"LV", hub:{BALTICS:180,SKAW:620}, eca:1, maxDraft:14.4, da:28000, rateFactor:0.95, shoreGear:true,  liq:0.55, bunker:{vlsfo:45,mgo:45} },
+  tallinn:   { name:"Tallinn",     cc:"EE", hub:{BALTICS:200,SKAW:720}, eca:1, maxDraft:14.5, da:26000, rateFactor:0.98, shoreGear:true,  liq:0.50, bunker:{vlsfo:40,mgo:42} },
+  klaipeda:  { name:"Klaipeda",    cc:"LT", hub:{BALTICS:170,SKAW:500}, eca:1, maxDraft:13.4, da:24000, rateFactor:1.00, shoreGear:true,  liq:0.55, bunker:{vlsfo:38,mgo:40} },
+  gdansk:    { name:"Gdansk",      cc:"PL", hub:{BALTICS:190,SKAW:430}, eca:1, maxDraft:15.0, da:25000, rateFactor:1.05, shoreGear:true,  liq:0.58, bunker:{vlsfo:32,mgo:36} },
+  ventspils: { name:"Ventspils",   cc:"LV", hub:{BALTICS:120,SKAW:590}, eca:1, maxDraft:15.0, da:24000, rateFactor:0.92, shoreGear:true,  liq:0.42, bunker:{vlsfo:48,mgo:50} },
+  kotka:     { name:"Kotka",       cc:"FI", hub:{BALTICS:380,SKAW:900}, eca:1, maxDraft:15.3, da:27000, rateFactor:0.88, shoreGear:true,  liq:0.34, bunker:{vlsfo:55,mgo:58}, ice:1 },
+  lulea:     { name:"Lulea",       cc:"SE", hub:{BALTICS:580,SKAW:1100},eca:1, maxDraft:13.0, da:29000, rateFactor:0.80, shoreGear:true,  liq:0.22, bunker:{mgo:70}, ice:2 },
+  // ---- North Continent / UK --------------------------------------------
+  rotterdam: { name:"Rotterdam",   cc:"NL", hub:{DOVER:130,SKAW:400}, eca:1, maxDraft:23.0, da:33000, rateFactor:1.15, shoreGear:true, liq:0.98, bunker:{vlsfo:0,mgo:0,hsfo:0} },
+  antwerp:   { name:"Antwerp",     cc:"BE", hub:{DOVER:110}, eca:1, maxDraft:16.0, da:36000, rateFactor:1.10, shoreGear:true,  liq:0.88, bunker:{vlsfo:8,mgo:10,hsfo:12} },
+  ghent:     { name:"Ghent",       cc:"BE", hub:{DOVER:105}, eca:1, maxDraft:12.5, da:34000, rateFactor:1.00, shoreGear:true,  liq:0.66, bunker:{vlsfo:18,mgo:20} },
+  amsterdam: { name:"Amsterdam",   cc:"NL", hub:{DOVER:175}, eca:1, maxDraft:16.5, da:31000, rateFactor:1.08, shoreGear:true,  liq:0.76, bunker:{vlsfo:5,mgo:6,hsfo:8} },
+  hamburg:   { name:"Hamburg",     cc:"DE", hub:{SKAW:340,DOVER:400}, eca:1, maxDraft:13.5, da:38000, rateFactor:1.05, shoreGear:true, liq:0.80, bunker:{vlsfo:20,mgo:22} },
+  immingham: { name:"Immingham",   cc:"GB", hub:{DOVER:300}, eca:1, maxDraft:13.0, da:26000, rateFactor:0.95, shoreGear:true,  liq:0.50, bunker:{vlsfo:30,mgo:32} },
+  dunkirk:   { name:"Dunkirk",     cc:"FR", hub:{DOVER:25},  eca:1, maxDraft:18.0, da:28000, rateFactor:1.00, shoreGear:true,  liq:0.54, bunker:{vlsfo:22,mgo:24} },
+  rouen:     { name:"Rouen",       cc:"FR", hub:{DOVER:190}, eca:1, maxDraft:10.7, da:30000, rateFactor:0.90, shoreGear:true,  liq:0.58, bunker:{vlsfo:40,mgo:42} },
+  // ---- Iberia / North Africa / Med --------------------------------------
+  bilbao:    { name:"Bilbao",      cc:"ES", hub:{FINIS:210}, eca:0, maxDraft:21.0, da:27000, rateFactor:0.98, shoreGear:true,  liq:0.48, bunker:{vlsfo:35,mgo:40} },
+  gibraltar: { name:"Gibraltar",   cc:"GI", hub:{GIB:0},     eca:0, maxDraft:20.0, da:9000,  rateFactor:0.60, shoreGear:true,  liq:0.30, bunker:{vlsfo:55,mgo:70,hsfo:55}, bunkerOnly:true },
+  casablanca:{ name:"Casablanca",  cc:"MA", hub:{GIB:180},   eca:0, maxDraft:12.2, da:22000, rateFactor:0.55, shoreGear:true,  liq:0.26, bunker:{vlsfo:95,mgo:110} },
+  tarragona: { name:"Tarragona",   cc:"ES", hub:{MEDW:130},   eca:1, maxDraft:16.0, da:25000, rateFactor:0.95, shoreGear:true,  liq:0.46, bunker:{vlsfo:38,mgo:44} },
+  livorno:   { name:"Livorno",     cc:"IT", hub:{SICILY:380,MEDW:420},eca:1, maxDraft:13.0, da:28000, rateFactor:0.85, shoreGear:true,  liq:0.42, bunker:{vlsfo:50,mgo:56} },
+  aliaga:    { name:"Aliaga",      cc:"TR", hub:{SICILY:720,EMED:250},eca:1, maxDraft:16.0, da:16000, rateFactor:1.10, shoreGear:true,  liq:0.60, bunker:{vlsfo:42,mgo:48} },
+  iskenderun:{ name:"Iskenderun",  cc:"TR", hub:{SICILY:1050,EMED:480},eca:1,maxDraft:14.0, da:15000, rateFactor:0.80, shoreGear:false, liq:0.44, bunker:{vlsfo:46,mgo:52} },
+  alexandria:{ name:"Alexandria",  cc:"EG", hub:{PORTSAID:130,EMED:420},eca:1,maxDraft:13.5,da:24000, rateFactor:0.60, shoreGear:true,  liq:0.34, bunker:{vlsfo:70,mgo:85} },
+  damietta:  { name:"Damietta",    cc:"EG", hub:{PORTSAID:40}, eca:1,maxDraft:14.5,da:22000, rateFactor:0.72, shoreGear:true,  liq:0.32, bunker:{vlsfo:68,mgo:82} },
+  // ---- Black Sea --------------------------------------------------------
+  constanta: { name:"Constanta",   cc:"RO", hub:{BOSPHORUS:190},eca:0,maxDraft:18.5,da:22000, rateFactor:0.85, shoreGear:true,  liq:0.62, bunker:{vlsfo:52,mgo:60} },
+  novoros:   { name:"Novorossiysk",cc:"RU", hub:{BOSPHORUS:400},eca:0,maxDraft:15.5,da:26000, rateFactor:0.82, shoreGear:true,  liq:0.40, bunker:{vlsfo:20,mgo:30} },
+  // ---- West Africa ------------------------------------------------------
+  dakar:     { name:"Dakar",       cc:"SN", hub:{DAKARW:30},  eca:0, maxDraft:11.5, da:26000, rateFactor:0.50, shoreGear:true,  liq:0.20, bunker:{vlsfo:130,mgo:150} },
+  abidjan:   { name:"Abidjan",     cc:"CI", hub:{DAKARW:1150},eca:0, maxDraft:11.5, da:30000, rateFactor:0.55, shoreGear:true,  liq:0.24, bunker:{vlsfo:140,mgo:165} },
+  takoradi:  { name:"Takoradi",    cc:"GH", hub:{DAKARW:1350},eca:0, maxDraft:10.0, da:28000, rateFactor:0.42, shoreGear:false, liq:0.16, bunker:{mgo:180} },
+  lagos:     { name:"Lagos",       cc:"NG", hub:{DAKARW:1700,RECIFE:3100},eca:0, maxDraft:11.0, da:48000, rateFactor:0.35, shoreGear:false, liq:0.22, bunker:{vlsfo:150,mgo:175} },
+  // ---- East Coast South America ----------------------------------------
+  santos:    { name:"Santos",      cc:"BR", hub:{RECIFE:1650,GOODHOPE:3300},eca:0, maxDraft:14.5, da:42000, rateFactor:0.90, shoreGear:true,  liq:0.72, bunker:{vlsfo:85,mgo:105} },
+  paranagua: { name:"Paranagua",   cc:"BR", hub:{RECIFE:1900,GOODHOPE:3250},eca:0, maxDraft:12.5, da:38000, rateFactor:0.85, shoreGear:true,  liq:0.60, bunker:{vlsfo:90,mgo:112} },
+  vitoria:   { name:"Vitoria",     cc:"BR", hub:{RECIFE:950}, eca:0, maxDraft:12.8, da:34000, rateFactor:0.95, shoreGear:true,  liq:0.44, bunker:{vlsfo:92,mgo:115} },
+  tubarao:   { name:"Tubarao",     cc:"BR", hub:{RECIFE:900}, eca:0, maxDraft:21.0, da:34000, rateFactor:1.50, shoreGear:false, liq:0.40, bunker:{vlsfo:92,mgo:115} },
+  sanlorenzo:{ name:"San Lorenzo", cc:"AR", hub:{RECIFE:2450},eca:0, maxDraft:10.4, da:55000, rateFactor:0.90, shoreGear:true,  liq:0.58, bunker:{vlsfo:110,mgo:135} },
+  // ---- US Gulf / East Coast (North American ECA) ------------------------
+  neworleans:{ name:"New Orleans", cc:"US", hub:{YUCATAN:620},eca:1, maxDraft:13.7, da:34000, rateFactor:1.10, shoreGear:true,  liq:0.82, bunker:{vlsfo:28,mgo:34,hsfo:30} },
+  houston:   { name:"Houston",     cc:"US", hub:{YUCATAN:620},eca:1, maxDraft:13.7, da:36000, rateFactor:1.05, shoreGear:true,  liq:0.74, bunker:{vlsfo:24,mgo:30,hsfo:26} },
+  baltimore: { name:"Baltimore",   cc:"US", hub:{HATTERAS:320},eca:1,maxDraft:15.0, da:32000, rateFactor:1.00, shoreGear:true,  liq:0.50, bunker:{vlsfo:40,mgo:48} },
+  tampa:     { name:"Tampa",       cc:"US", hub:{FLSTRAIT:330},eca:1,maxDraft:13.0, da:30000, rateFactor:0.95, shoreGear:true,  liq:0.38, bunker:{vlsfo:36,mgo:44} },
+  veracruz:  { name:"Veracruz",    cc:"MX", hub:{YUCATAN:620},eca:1, maxDraft:13.5, da:30000, rateFactor:0.70, shoreGear:true,  liq:0.30, bunker:{vlsfo:60,mgo:74} },
+  // ---- Asia / Pacific ---------------------------------------------------
+  singapore: { name:"Singapore",   cc:"SG", hub:{MALACCA:10}, eca:0, maxDraft:20.0, da:24000, rateFactor:1.20, shoreGear:true,  liq:0.94, bunker:{vlsfo:30,mgo:30,hsfo:25} },
+  qingdao:   { name:"Qingdao",     cc:"CN", hub:{TAIWAN:750}, eca:0, maxDraft:20.0, da:30000, rateFactor:1.20, shoreGear:true,  liq:0.90, bunker:{vlsfo:60,mgo:72,hsfo:58} },
+  shanghai:  { name:"Shanghai",    cc:"CN", hub:{TAIWAN:450}, eca:0, maxDraft:15.5, da:32000, rateFactor:1.22, shoreGear:true,  liq:0.92, bunker:{vlsfo:58,mgo:70,hsfo:56} },
+  chiba:     { name:"Chiba",       cc:"JP", hub:{TAIWAN:1000,SYDNEYE:4250},eca:0, maxDraft:18.0, da:40000, rateFactor:1.15, shoreGear:true,  liq:0.52, bunker:{vlsfo:75,mgo:92} },
+  porthedland:{name:"Port Hedland",cc:"AU", hub:{NWSHELF:120},eca:0, maxDraft:19.4, da:45000, rateFactor:1.60, shoreGear:false, liq:0.34, bunker:{vlsfo:95,mgo:120} },
+  dampier:   { name:"Dampier",     cc:"AU", hub:{NWSHELF:60}, eca:0, maxDraft:18.8, da:44000, rateFactor:1.55, shoreGear:false, liq:0.30, bunker:{vlsfo:95,mgo:120} },
+  newcastleau:{name:"Newcastle NSW",cc:"AU",hub:{SYDNEYE:60}, eca:0, maxDraft:16.7, da:46000, rateFactor:1.30, shoreGear:false, liq:0.44, bunker:{vlsfo:90,mgo:115} },
+  fujairah:  { name:"Fujairah",    cc:"AE", hub:{HORMUZ:60},  eca:0, maxDraft:16.0, da:22000, rateFactor:0.85, shoreGear:true,  liq:0.52, bunker:{vlsfo:15,mgo:40,hsfo:15} },
+  mumbai:    { name:"Mumbai",      cc:"IN", hub:{HORMUZ:950,DONDRA:880}, eca:0, maxDraft:12.5, da:30000, rateFactor:0.70, shoreGear:true,  liq:0.46, bunker:{vlsfo:80,mgo:100} },
+  vizag:     { name:"Visakhapatnam",cc:"IN",hub:{MALACCA:1450,DONDRA:950},eca:0,maxDraft:17.0, da:26000, rateFactor:0.75, shoreGear:true,  liq:0.44, bunker:{vlsfo:78,mgo:98} },
+  kandla:    { name:"Kandla",      cc:"IN", hub:{HORMUZ:750}, eca:0, maxDraft:13.0, da:25000, rateFactor:0.72, shoreGear:true,  liq:0.42, bunker:{vlsfo:82,mgo:102} },
+};
+
+/* ----------------------------------------------------------------------------
+   ROUTE TEMPLATES — the cargo book the market throws up.
+   rate = $/mt freight at index 100 (mid-cycle). w = relative frequency.
+   dwt  = [min,max] the trade will accept — a 28k Handysize is not offered a
+          170k ore stem, and Up-River Parana cannot take a Capesize at all.
+------------------------------------------------------------------------------- */
+const ROUTES = [
+  // --- Baltic / Continent short-sea: the Handysize home patch ------------
+  { l:"riga",       d:"ghent",      c:"wheat",   rate:9.92,  dwt:[20000,62000], w:10 },
+  { l:"riga",       d:"rotterdam",  c:"wheat",   rate:8.65,  dwt:[20000,62000], w:8 },
+  { l:"klaipeda",   d:"rotterdam",  c:"wheat",   rate:7.99,  dwt:[20000,62000], w:8 },
+  { l:"klaipeda",   d:"casablanca", c:"wheat",   rate:14.49, dwt:[20000,62000], w:7 },
+  { l:"gdansk",     d:"immingham",  c:"coal",    rate:7.70,  dwt:[20000,80000], w:6 },
+  { l:"ventspils",  d:"antwerp",    c:"potash",  rate:10.11, dwt:[20000,62000], w:6 },
+  { l:"tallinn",    d:"hamburg",    c:"barley",  rate:9.41,  dwt:[20000,55000], w:6 },
+  { l:"kotka",      d:"rouen",      c:"logs",    rate:26.56, dwt:[20000,45000], w:4 },
+  { l:"lulea",      d:"rotterdam",  c:"ironore", rate:8.47, dwt:[20000,50000], w:3, iceReq:1 },
+  { l:"rouen",      d:"casablanca", c:"wheat",   rate:12.98, dwt:[20000,55000], w:7 },
+  { l:"rouen",      d:"alexandria", c:"wheat",   rate:21.44, dwt:[20000,62000], w:6 },
+  { l:"ghent",      d:"aliaga",     c:"scrap",   rate:15.87, dwt:[20000,62000], w:8 },
+  { l:"rotterdam",  d:"aliaga",     c:"scrap",   rate:15.00, dwt:[20000,62000], w:7 },
+  { l:"amsterdam",  d:"iskenderun", c:"scrap",   rate:17.79, dwt:[20000,58000], w:5 },
+  { l:"antwerp",    d:"lagos",      c:"cement",  rate:30.63, dwt:[20000,55000], w:5 },
+  { l:"dunkirk",    d:"tarragona",  c:"steel",   rate:17.18, dwt:[20000,45000], w:4 },
+  { l:"immingham",  d:"gdansk",     c:"salt",    rate:9.51,  dwt:[20000,50000], w:4 },
+  // --- Mediterranean / Black Sea ---------------------------------------
+  { l:"constanta",  d:"alexandria", c:"wheat",   rate:9.71, dwt:[20000,80000], w:9 },
+  { l:"constanta",  d:"damietta",   c:"corn",    rate:9.43, dwt:[20000,80000], w:8 },
+  { l:"novoros",    d:"alexandria", c:"wheat",   rate:10.02, dwt:[20000,80000], w:7 },
+  { l:"constanta",  d:"livorno",    c:"wheat",   rate:10.79, dwt:[20000,62000], w:5 },
+  { l:"aliaga",     d:"casablanca", c:"steel",   rate:18.28, dwt:[20000,45000], w:4 },
+  { l:"tarragona",  d:"dakar",      c:"cement",  rate:20.43, dwt:[20000,45000], w:4 },
+  { l:"alexandria", d:"livorno",    c:"urea",    rate:13.90, dwt:[20000,55000], w:4 },
+  // --- Transatlantic / US Gulf ------------------------------------------
+  { l:"neworleans", d:"ghent",      c:"corn",    rate:25.45, dwt:[30000,85000], w:8 },
+  { l:"neworleans", d:"rotterdam",  c:"soybean", rate:23.40, dwt:[30000,85000], w:7 },
+  { l:"neworleans", d:"casablanca", c:"wheat",   rate:24.10, dwt:[25000,70000], w:6 },
+  { l:"houston",    d:"santos",     c:"urea",    rate:25.59, dwt:[25000,62000], w:5 },
+  { l:"baltimore",  d:"rotterdam",  c:"cokecoal",rate:13.39, dwt:[45000,95000], w:6 },
+  { l:"tampa",      d:"santos",     c:"urea",    rate:23.45, dwt:[25000,60000], w:4 },
+  { l:"veracruz",   d:"neworleans", c:"salt",    rate:9.30, dwt:[20000,50000], w:4 },
+  // --- East Coast South America ----------------------------------------
+  { l:"sanlorenzo", d:"casablanca", c:"corn",    rate:30.57, dwt:[25000,62000], w:7 },
+  { l:"sanlorenzo", d:"rotterdam",  c:"soybean", rate:34.19, dwt:[25000,62000], w:7 },
+  { l:"sanlorenzo", d:"alexandria", c:"wheat",   rate:38.99, dwt:[25000,70000], w:5 },
+  { l:"santos",     d:"rotterdam",  c:"sugar",   rate:24.67, dwt:[25000,62000], w:6 },
+  { l:"santos",     d:"qingdao",    c:"soybean", rate:34.31, dwt:[60000,100000],w:7 },
+  { l:"paranagua",  d:"shanghai",   c:"soybean", rate:35.18, dwt:[60000,100000],w:6 },
+  { l:"tubarao",    d:"qingdao",    c:"ironore", rate:21.14, dwt:[150000,340000],w:9 },
+  { l:"tubarao",    d:"rotterdam",  c:"ironore", rate:11.51, dwt:[150000,340000],w:6 },
+  { l:"vitoria",    d:"aliaga",     c:"ironore", rate:20.07, dwt:[45000,95000], w:5 },
+  // --- West Africa ------------------------------------------------------
+  { l:"lagos",      d:"santos",     c:"urea",    rate:29.17, dwt:[25000,62000], w:4 },
+  { l:"takoradi",   d:"rotterdam",  c:"bauxite", rate:21.90, dwt:[25000,62000], w:4 },
+  { l:"abidjan",    d:"livorno",    c:"logs",    rate:43.05, dwt:[20000,45000], w:3 },
+  // --- Pacific / Indian Ocean ------------------------------------------
+  { l:"porthedland",d:"qingdao",    c:"ironore", rate:8.00,  dwt:[150000,340000],w:10 },
+  { l:"dampier",    d:"qingdao",    c:"ironore", rate:7.92,  dwt:[150000,340000],w:8 },
+  { l:"newcastleau",d:"chiba",      c:"coal",    rate:14.76, dwt:[60000,110000],w:8 },
+  { l:"newcastleau",d:"qingdao",    c:"coal",    rate:15.34, dwt:[60000,110000],w:7 },
+  { l:"vizag",      d:"singapore",  c:"ironore", rate:6.29, dwt:[45000,85000], w:4 },
+  { l:"kandla",     d:"singapore",  c:"salt",    rate:15.33, dwt:[25000,62000], w:4 },
+  { l:"singapore",  d:"mumbai",     c:"coal",    rate:9.68, dwt:[45000,85000], w:5 },
+  { l:"qingdao",    d:"singapore",  c:"steel",   rate:13.37, dwt:[20000,55000], w:5 },
+  { l:"shanghai",   d:"vizag",      c:"steel",   rate:19.31, dwt:[20000,55000], w:4 },
+  { l:"mumbai",     d:"fujairah",   c:"cement",  rate:11.87, dwt:[20000,50000], w:4 },
+];
+
+/* ----------------------------------------------------------------------------
+   SEASONALITY — multiplier on the segment index by day of year.
+   Northern-hemisphere grain harvest (Sep-Dec), Chinese New Year lull
+   (late Jan-Feb), SW monsoon drag on Indian coal (Jun-Aug).
+------------------------------------------------------------------------------- */
+const SEASON = {
+  handy: [0.97,0.92,0.95,1.00,1.02,1.01,0.99,1.00,1.07,1.11,1.09,1.03],
+  pmx:   [0.96,0.90,0.94,0.99,1.02,1.02,1.00,1.01,1.08,1.12,1.10,1.03],
+  cape:  [0.94,0.88,0.93,1.01,1.05,1.04,1.00,0.99,1.05,1.09,1.08,1.02],
+};
+const INDEX_META = {
+  handy: { name:"Handysize / Supramax", short:"HANDY" },
+  pmx:   { name:"Panamax / Kamsarmax",  short:"PMX"   },
+  cape:  { name:"Capesize",             short:"CAPE"  },
+};
+
+/* ----------------------------------------------------------------------------
+   GLOSSARY — every term gets one plain line on first appearance and lives here
+------------------------------------------------------------------------------- */
+const GLOSSARY = {
+  tce:      ["TCE", "Time Charter Equivalent — voyage profit divided by total voyage days, ballast and port time included. The one number the whole industry is judged on."],
+  ballast:  ["Ballast leg", "Sailing empty to reach your next cargo. You burn fuel and spend days earning nothing, so where a voyage ends matters as much as what it pays."],
+  laden:    ["Laden leg", "Sailing with cargo aboard — the only part of a voyage that earns freight."],
+  opex:     ["OPEX", "Daily running cost whatever the ship is doing: crew, stores, lubricants, insurance, maintenance and management fee."],
+  da:       ["Port disbursements", "The bill for calling at a port: dues, pilotage in and out, towage, agency, linesmen. Set by the port, not by you."],
+  bunkers:  ["Bunkers", "Marine fuel. The largest voyage cost you actually control, through speed and where you buy it."],
+  vlsfo:    ["VLSFO", "Very Low Sulphur Fuel Oil, 0.5% sulphur. The standard fuel outside emission control areas."],
+  mgo:      ["MGO", "Marine Gas Oil, 0.1% sulphur. Mandatory inside emission control areas and roughly 35% dearer than VLSFO."],
+  hsfo:     ["HSFO", "High Sulphur Fuel Oil. Cheapest fuel, but only legal if the ship has a scrubber fitted."],
+  eca:      ["ECA", "Emission Control Area — North Sea, Baltic, North America, Caribbean and the Mediterranean. Inside one you must burn 0.1% sulphur fuel, which costs more."],
+  dwt:      ["DWT", "Deadweight tonnes: cargo, bunkers, stores and fresh water the ship can carry. The headline measure of a bulk carrier's size."],
+  fiost:    ["FIOST", "Free In and Out, Stowed and Trimmed — the charterer pays for loading and discharging. The usual terms in dry bulk."],
+  laytime:  ["Laytime", "The time the charterer is allowed for loading and discharging. Run over it and they owe you demurrage; finish early and you may owe them despatch."],
+  demurrage:["Demurrage", "Compensation the charterer pays you, per day, for port time beyond the agreed laytime."],
+  despatch: ["Despatch", "A rebate you pay the charterer for finishing cargo operations early. Usually half the demurrage rate."],
+  geared:   ["Geared", "The ship has her own cranes, so she can work at ports with no shore cranes. Gearless ships are cheaper to run but shut out of those berths."],
+  stowage:  ["Stowage factor", "Cubic metres a tonne of cargo occupies. Light cargoes fill the holds before they fill the deadweight; ore does the opposite."],
+  draft:    ["Draft", "How deep the ship sits. If a port is shallower than your loaded draft you must sail part-empty, and you carry less cargo for the same voyage cost."],
+  ets:      ["EU ETS", "The EU carbon market. Shipping pays for CO2 on EU voyages — all of it inside the EU, half on voyages in or out."],
+  fueleu:   ["FuelEU", "An EU limit on the greenhouse-gas intensity of the fuel you burn. Miss the target and you pay a penalty per tonne of shortfall."],
+  index:    ["Freight index", "A market-wide measure of what ships of a given size are earning. 100 is mid-cycle; the market genuinely goes to 40 and to 250."],
+  liquidity:["Market liquidity", "How much cargo is on offer out of a port. Discharging somewhere thin means a long empty leg to your next fixture."],
+  addcomm:  ["Address commission", "A discount, typically 2.5%, that the charterer deducts from the freight. Brokerage is another 1.25% on top."],
+  ltv:      ["LTV", "Loan to value — debt as a share of the ship's market value. Banks set a ceiling, and if values fall through it you must repay or post cash."],
+  slowsteam:["Slow steaming", "Cutting speed to save fuel. Consumption falls with roughly the cube of speed, so a small speed cut saves a lot of fuel — at the cost of days."],
+};
+/* ############################################################################
+   §MODEL — pure functions. No state, no DOM. Everything here can be lifted out
+   and unit-tested; the UI only ever reads what these return.
+   ######################################################################### */
+
+const clamp = (v,a,b)=>v<a?a:v>b?b:v;
+const lerp  = (a,b,t)=>a+(b-a)*t;
+
+/* --- deterministic PRNG so a seeded run reproduces exactly ---------------- */
+function mulberry(seed){
+  let a = seed >>> 0;
+  return function(){
+    a = (a + 0x6D2B79F5) >>> 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+// Box-Muller, cached
+let _g2 = null;
+function gauss(rnd){
+  if(_g2 !== null){ const v=_g2; _g2=null; return v; }
+  let u=0,v=0; while(u===0) u=rnd(); while(v===0) v=rnd();
+  const r=Math.sqrt(-2*Math.log(u)), th=2*Math.PI*v;
+  _g2 = r*Math.sin(th); return r*Math.cos(th);
+}
+
+/* ==========================================================================
+   ROUTING — Dijkstra over the port/hub sea graph.
+   Returns { nm, ecaNm, path } where ecaNm is the distance inside an ECA.
+   ========================================================================= */
+const _graph = (function build(){
+  const g = {};
+  const add = (a,b,nm,eca)=>{
+    (g[a] ||= []).push({ to:b, nm, eca });
+    (g[b] ||= []).push({ to:a, nm, eca });
+  };
+  for(const [a,b,nm,eca] of HUB_EDGES) add("#"+a, "#"+b, nm, eca);
+  for(const [id,p] of Object.entries(PORTS))
+    for(const [h,nm] of Object.entries(p.hub)) add(id, "#"+h, nm, p.eca ? 1.0 : 0.0);
+  return g;
+})();
+
+const _routeCache = new Map();
+function seaRoute(from, to){
+  if(from === to) return { nm:0, ecaNm:0 };
+  const key = from+">"+to;
+  const hit = _routeCache.get(key); if(hit) return hit;
+
+  const dist = { [from]:0 }, eca = { [from]:0 }, done = new Set();
+  // Node count is ~70; a linear scan beats a heap and keeps the code honest.
+  for(;;){
+    let cur=null, best=Infinity;
+    for(const n in dist) if(!done.has(n) && dist[n]<best){ best=dist[n]; cur=n; }
+    if(cur===null || cur===to) break;
+    done.add(cur);
+    for(const e of (_graph[cur]||[])){
+      const nd = best + e.nm;
+      if(nd < (dist[e.to] ?? Infinity)){
+        dist[e.to] = nd;
+        eca[e.to]  = eca[cur] + e.nm * e.eca;
+      }
+    }
+  }
+  const out = { nm: Math.round(dist[to] ?? 0), ecaNm: Math.round(eca[to] ?? 0) };
+  _routeCache.set(key, out);
+  return out;
+}
+
+/* ==========================================================================
+   VESSEL PHYSICS
+   ========================================================================= */
+
+/* Daily fuel burn at a given speed.
+   Fixed auxiliary load + propulsion term scaling with the cube of speed.
+   Ballast propulsion is ~87% of laden at the same speed (less displacement,
+   worse propeller immersion partly offsets the lighter hull). */
+function burnAt(cls, speed, laden){
+  const propRef = cls.consLaden - cls.auxSea;
+  const prop = (laden ? propRef : propRef*0.87) * Math.pow(speed/cls.designSpeed, 3);
+  return cls.auxSea + prop;
+}
+
+/* How much cargo actually goes aboard.
+   min( deadweight less bunkers/stores/constants,
+        deadweight the port's draft allows,
+        hold cubic divided by the cargo's stowage factor ) */
+function cargoIntake(cls, cargo, loadPort, dischPort, robMt){
+  const constants = cls.dwt * 0.022;                       // stores, FW, constants
+  const dwtAvail  = cls.dwt - constants - Math.max(robMt, cls.fuelCap*0.12);
+  const limitDraft = (port)=>{
+    const short = cls.draft - Math.min(port.maxDraft, cls.draft);
+    return cls.dwt - short*100*cls.tpc;                    // tpc is tonnes per cm
+  };
+  const draftLim = Math.min(limitDraft(loadPort), limitDraft(dischPort));
+  const cubeLim  = cls.grainCubic / cargo.sf;
+  return Math.max(0, Math.floor(Math.min(dwtAvail, draftLim, cubeLim)));
+}
+
+/* Cargo operation days at a port, from the terminal's real productivity. */
+function portDays(cargo, port, qty, loading){
+  const rate = (loading ? cargo.load : cargo.disch) * port.rateFactor;
+  return qty / rate + 0.5;                                 // +0.5d berthing/survey/documents
+}
+
+/* Port disbursements, scaled off the port's Handysize-reference figure. */
+function portDA(port, cls){
+  return Math.round(port.da * Math.pow(cls.gt/20000, 0.55));
+}
+
+/* Bunker price $/mt for a grade at a port; null if not available there. */
+function bunkerPrice(port, grade, mkt){
+  const off = port.bunker && port.bunker[grade];
+  if(off === undefined || off === null) return null;
+  return Math.round(CFG.FUEL[grade].base * (mkt ? mkt.oil : 1) + off);
+}
+
+/* Daily OPEX — older tonnage costs more to keep in class. */
+function opexDay(cls, ageYears){
+  return Math.round(cls.opexBase * (1 + CFG.OPEX_AGE_SLOPE * Math.max(0, ageYears-10)));
+}
+
+/* ==========================================================================
+   CARBON
+   ========================================================================= */
+/* EU ETS: 100% of emissions on intra-EU voyages, 50% in or out, times the
+   phase-in share. EU/EEA berth calls also count in full. */
+function etsCost(fuelByGrade, scope){
+  let co2 = 0;
+  for(const [g,mt] of Object.entries(fuelByGrade)) co2 += mt * CFG.FUEL[g].co2;
+  const chargeable = co2 * scope * CFG.ETS_PHASE;
+  return { co2, chargeable, cost: chargeable * CFG.EUA_EUR * CFG.EUR_USD };
+}
+
+/* FuelEU Maritime: penalty on the GHG-intensity shortfall against the target. */
+function fuelEuCost(fuelByGrade, scope){
+  let mj = 0, wsum = 0;
+  for(const [g,mt] of Object.entries(fuelByGrade)){
+    const e = mt * CFG.MJ_PER_MT; mj += e; wsum += e * CFG.FUEL[g].ghg;
+  }
+  if(mj <= 0) return { intensity:0, cost:0 };
+  const intensity = wsum / mj;
+  const gap = intensity - CFG.FUELEU_TARGET;
+  if(gap <= 0) return { intensity, cost:0 };
+  const deficitG = gap * mj * scope;                        // gCO2e
+  const eur = (deficitG / (intensity * CFG.MJ_PER_MT)) * CFG.FUELEU_PENALTY_EUR;
+  return { intensity, cost: eur * CFG.EUR_USD };
+}
+
+/* EU carbon scope for a voyage: 1.0 intra-EU, 0.5 one end in the EU, else 0. */
+const EU_CC = new Set(["NL","BE","DE","FR","GB","LV","EE","LT","PL","FI","SE","ES","IT","RO","GR","PT","DK","IE","BG","HR","SI","MT","CY"]);
+// GB is post-Brexit outside EU ETS but inside the UK scheme at a similar price;
+// treating it as in-scope keeps the North Sea trades honest without a second market.
+function euScope(loadPort, dischPort){
+  const a = EU_CC.has(loadPort.cc), b = EU_CC.has(dischPort.cc);
+  return a && b ? 1.0 : (a || b) ? 0.5 : 0.0;
+}
+
+/* ==========================================================================
+   VOYAGE ESTIMATE — the core calculation. Everything the player sees about a
+   fixture, and everything the P&L settles against, comes from this one
+   function. Given a ship, a fixture and a speed it returns the full plan.
+   ========================================================================= */
+function voyageEstimate(ship, fx, speed, mkt, opts){
+  opts = opts || {};
+  const cls  = CLASSES[ship.cls];
+  const cargo= CARGOES[fx.cargo];
+  const lp   = PORTS[fx.load], dp = PORTS[fx.disch];
+
+  // --- legs ------------------------------------------------------------
+  const bal = seaRoute(ship.port, fx.load);
+  const lad = seaRoute(fx.load, fx.disch);
+  const sp  = clamp(speed, cls.minSpeed, cls.maxSpeed);
+  const balDays = bal.nm / sp / 24;
+  const ladDays = lad.nm / sp / 24;
+
+  // --- cargo and port time ---------------------------------------------
+  const qty     = Math.min(fx.qty, cargoIntake(cls, cargo, lp, dp, ship.robTotal ?? 0));
+  const loadDays  = portDays(cargo, lp, qty, true);
+  const dischDays = portDays(cargo, dp, qty, false);
+  const portTime  = loadDays + dischDays;
+  const days      = balDays + ladDays + portTime;
+
+  // --- fuel: grade follows the ECA, not the owner's preference ----------
+  const burnBal = burnAt(cls, sp, false), burnLad = burnAt(cls, sp, true);
+  const ecaBalDays = (bal.ecaNm / sp / 24), ecaLadDays = (lad.ecaNm / sp / 24);
+  const seaMgo  = ecaBalDays*burnBal + ecaLadDays*burnLad;
+  const seaMain = (balDays-ecaBalDays)*burnBal + (ladDays-ecaLadDays)*burnLad;
+  const portMgo  = (lp.eca ? loadDays : 0) * cls.auxPort + (dp.eca ? dischDays : 0) * cls.auxPort;
+  const portMain = (lp.eca ? 0 : loadDays) * cls.auxPort + (dp.eca ? 0 : dischDays) * cls.auxPort;
+
+  const mainGrade = ship.scrubber ? "hsfo" : "vlsfo";
+  const fuel = { [mainGrade]: seaMain + portMain, mgo: seaMgo + portMgo };
+  if(fuel[mainGrade] < 0.01) delete fuel[mainGrade];
+  if(fuel.mgo < 0.01) delete fuel.mgo;
+
+  // Priced where the ship will actually have to buy it: what is aboard is
+  // valued at what it cost, the balance at the load port's screen price.
+  let bunkerCost = 0;
+  const bunkerLines = [];
+  for(const [g,mt] of Object.entries(fuel)){
+    const have = Math.min(mt, (ship.rob && ship.rob[g]) || 0);
+    const buy  = mt - have;
+    const pxHave = (ship.robCost && ship.robCost[g]) || bunkerPrice(lp, g, mkt) || CFG.FUEL[g].base;
+    const pxBuy  = bunkerPrice(lp, g, mkt) ?? bunkerPrice(PORTS.rotterdam, g, mkt);
+    const c = have*pxHave + buy*pxBuy*(buy>0 && !bunkerPrice(lp,g,mkt) ? 1+CFG.EMERGENCY_LIFT_PREMIUM : 1);
+    bunkerCost += c;
+    bunkerLines.push({ grade:g, mt, have, buy, px:Math.round(pxBuy||pxHave), cost:c });
+  }
+
+  // --- revenue ---------------------------------------------------------
+  const gross = qty * fx.rate;
+  const comm  = gross * (CFG.COMM_ADDRESS + CFG.COMM_BROKER);
+  const net   = gross - comm;
+
+  // --- other voyage costs ----------------------------------------------
+  const daLoad = portDA(lp, cls), daDisch = portDA(dp, cls);
+
+  const scope = euScope(lp, dp);
+  const ets   = etsCost(fuel, scope);
+  const feu   = fuelEuCost(fuel, scope);
+
+  // --- laytime / demurrage --------------------------------------------
+  // Laytime allowed is the agreed cargo rate; the terminal's actual rate is
+  // what happens. Beat it and the charterer pays demurrage; miss it and you
+  // hand back half of it as despatch.
+  const laytime = fx.laytime ?? (portTime * 0.94);
+  const overrun = portTime - laytime;
+  const demRate = fx.demRate ?? Math.round(cls.dwt * 0.34);
+  const demurrage = overrun > 0 ? overrun*demRate : overrun*demRate*0.5;
+
+  const costs = bunkerCost + daLoad + daDisch + ets.cost + feu.cost;
+  const gvp   = net - costs + demurrage;          // gross voyage profit
+  const tce   = days > 0 ? gvp/days : 0;
+
+  const age   = opts.year ? opts.year - ship.built : (ship.age ?? 15);
+  const opex  = opexDay(cls, age) * days;
+
+  return {
+    qty, speed:sp, days, balDays, ladDays, loadDays, dischDays, portTime,
+    balNm:bal.nm, ladNm:lad.nm, ecaNm:bal.ecaNm+lad.ecaNm,
+    gross, comm, net,
+    fuel, bunkerCost, bunkerLines, daLoad, daDisch,
+    ets, feu, euScope:scope,
+    laytime, overrun, demRate, demurrage,
+    costs, gvp, tce, opex, netCash: gvp - opex,
+    cargoName: cargo.name, loadName: lp.name, dischName: dp.name,
+  };
+}
+
+/* Best speed for a fixture: TCE is not monotonic in speed, so just sweep it.
+   Cheap (25 evaluations) and exact for the model, which is better than an
+   analytic optimum that quietly assumes away port time. */
+function optimalSpeed(ship, fx, mkt){
+  const cls = CLASSES[ship.cls];
+  let best=null, bestSp=cls.designSpeed;
+  for(let s=cls.minSpeed; s<=cls.maxSpeed+1e-9; s+=0.25){
+    const e = voyageEstimate(ship, fx, s, mkt);
+    if(best===null || e.tce>best){ best=e.tce; bestSp=s; }
+  }
+  return { speed:Math.round(bestSp*4)/4, tce:best };
+}
+
+/* ==========================================================================
+   FREIGHT MARKET
+   Long cycle wave + AR(1) noise + seasonality, per segment, with the segments
+   sharing part of their innovation so they move together without moving in
+   lockstep. Phase 3 replaces the wave with an explicit supply/demand balance
+   (orderbook, deliveries, scrapping, congestion); the interface stays the same.
+   ========================================================================= */
+function newMarket(seed){
+  const rnd = mulberry(seed);
+  const m = { rnd, oil:1.0, oilNoise:0, idx:{}, hist:{}, lastHist:0 };
+  const phase0 = { handy:0.0, pmx:-0.22, cape:-0.45 };   // cape leads the turn
+  for(const k of Object.keys(INDEX_META)){
+    m.idx[k] = { v:CFG.MKT.startIndex, phase:phase0[k], noise:0 };
+    m.hist[k] = [];
+  }
+  return m;
+}
+
+function stepMarket(m, dt, day){
+  const K = CFG.MKT;
+  // Bunker prices ride a slow random walk on crude; ±35% is a normal year.
+  m.oilNoise = m.oilNoise*0.995 + gauss(m.rnd)*0.010*Math.sqrt(dt);
+  m.oil = clamp(1 + m.oilNoise, 0.62, 1.55);
+
+  const common = gauss(m.rnd) * K.shock * Math.sqrt(dt);
+  const month = Math.floor((day % 365) / 30.42) % 12;
+
+  for(const k of Object.keys(m.idx)){
+    const s = m.idx[k];
+    s.phase += (2*Math.PI/K.cycleDays) * dt;
+    const wave = 1 + K.amp * Math.sin(s.phase);
+    // 55% shared innovation, 45% idiosyncratic — segments correlate, not couple.
+    const inno = common*0.55 + gauss(m.rnd)*K.shock*Math.sqrt(dt)*0.45;
+    s.noise = s.noise*Math.pow(K.ar, dt) + inno;
+    const season = SEASON[k][month];
+    s.v = clamp(100 * wave * season * (1 + s.noise), K.min, K.max);
+  }
+
+  if(day - m.lastHist >= K.histEvery){
+    m.lastHist = day;
+    for(const k of Object.keys(m.idx)){
+      const h = m.hist[k];
+      h.push(Math.round(m.idx[k].v * 10) / 10);
+      if(h.length > K.histMax) h.shift();
+    }
+  }
+}
+
+/* Freight $/mt for a route at today's market, with per-fixture dispersion. */
+function routeRate(route, m, jitter){
+  const seg = ROUTES_SEG(route);
+  return route.rate * (m.idx[seg].v / 100) * (1 + jitter*CFG.FIXTURE_NOISE);
+}
+/* Which index prices a route — decided by the size band it invites. */
+function ROUTES_SEG(route){
+  const mid = (route.dwt[0]+route.dwt[1])/2;
+  return mid >= 120000 ? "cape" : mid >= 70000 ? "pmx" : "handy";
+}
+/* ############################################################################
+   §STATE — the whole game is this object. It serialises to JSON verbatim, so
+   save/load/export are the same code path and there is nothing to keep in sync.
+   ######################################################################### */
+
+let S = null;               // the live game state
+let MKT = null;             // market (holds a PRNG closure, rebuilt on load)
+let hasStorage = true;      // false => in-memory only, banner shown
+
+function newGame(seed){
+  seed = seed || (Math.floor(Math.random()*1e9)>>>0);
+  MKT = newMarket(seed);
+  for(const k of Object.keys(MKT.idx)) MKT.idx[k].v = CFG.MKT.startIndex;
+
+  const s = {
+    v: 1, seed, day: 0, speed: 1, paused: false, tab: "fleet",
+    cash: CFG.START_CASH,
+    ships: [], fixtures: [], fixturesStamp: -99, nextId: 1,
+    voyagesDone: 0,
+    // rolling ledger
+    ledger: { freight:0, bunkers:0, portDA:0, carbon:0, demurrage:0, opex:0, interest:0, principal:0 },
+    daily: [],              // {day, cash} for the cash chart
+    log: [],                // completed-voyage log, newest first
+    seen: {},               // glossary terms already introduced
+    coached: {},            // onboarding callouts already shown
+    tut: 0,                 // tutorial step
+    mkt: null,              // market snapshot, filled by snapshotMarket()
+    lastWall: Date.now(),
+    debug: false,
+  };
+
+  // --- the opening ship -------------------------------------------------
+  const cfg = CFG.START_SHIP, cls = CLASSES[cfg.cls];
+  const val = assetValue(cfg.cls, year(s) - cfg.built, MKT);
+  const ship = mkShip(s, cfg.cls, cfg.name, cfg.built, cfg.port);
+  ship.debt = { principal: val*cfg.ltv, orig: val*cfg.ltv, rate: cfg.rate,
+                termDays: cfg.termYears*365, paidP:0, paidI:0 };
+  s.ships.push(ship);
+  S = s;
+  refreshFixtures(true);
+  snapshotMarket();
+  return s;
+}
+
+function mkShip(s, clsId, name, built, port){
+  const cls = CLASSES[clsId];
+  // Ships arrive with roughly a third of tank capacity aboard — enough to move,
+  // not enough to ignore where the next lift happens.
+  const rob = {}, robCost = {};
+  const mainGrade = "vlsfo";
+  rob[mainGrade] = Math.round(cls.fuelCap*0.30);
+  rob.mgo = Math.round(cls.fuelCap*0.10);
+  robCost[mainGrade] = CFG.FUEL[mainGrade].base + 30;
+  robCost.mgo = CFG.FUEL.mgo.base + 30;
+  return {
+    id: s.nextId++, cls: clsId, name, built, port,
+    status: "idle",        // idle | ballast | loading | laden | discharging
+    voyage: null,
+    rob, robCost, scrubber: false,
+    hull: 1.0,             // 1.0 = well maintained; degrades in later phases
+    debt: null,
+    lifeTce: [], lifeDays: 0, lifeGvp: 0, voyages: 0,
+  };
+}
+
+const year   = (s)=> 2026 + Math.floor((s||S).day/365);
+const gDate  = (s)=> new Date(CFG.START_EPOCH + (s||S).day*86400000);
+const robTot = (sh)=> Object.values(sh.rob).reduce((a,b)=>a+b,0);
+const shipAge= (sh)=> year() - sh.built;
+const shipCls= (sh)=> CLASSES[sh.cls];
+
+/* Secondhand value: newbuild parity discounted for age, scaled by where the
+   cycle sits, floored at scrap. The floor is why old tonnage stops falling in
+   a crash — a real and load-bearing feature of the asset market. */
+function assetValue(clsId, age, m){
+  const c = CLASSES[clsId];
+  const idxNow = m ? m.idx[c.idx].v : 100;
+  // Age curve anchored on the two points we have data for: newbuild and 15yr.
+  const t = clamp(age/15, 0, 2.2);
+  const base = age <= 15 ? lerp(c.nb, c.sh15, t) : c.sh15 * Math.pow(0.86, age-15);
+  const cyc  = 0.55 + 0.45*(idxNow/100);          // values move less than rates
+  const scrap= c.ldt * 520 * (0.75 + 0.25*(idxNow/100));
+  return Math.max(scrap, base*cyc);
+}
+
+/* Unlock gate — systems appear only once the player has a reason to care. */
+const has = (k)=> S.voyagesDone >= (CFG.UNLOCK[k] ?? 0) || S.debug;
+
+/* Cheap market snapshot for the UI so render never touches the PRNG. */
+function snapshotMarket(){
+  S.mkt = {
+    oil: MKT.oil,
+    idx: Object.fromEntries(Object.entries(MKT.idx).map(([k,v])=>[k, Math.round(v.v*10)/10])),
+    hist: Object.fromEntries(Object.entries(MKT.hist).map(([k,v])=>[k, v.slice()])),
+  };
+}
+
+/* ==========================================================================
+   SAVE / LOAD
+   The market PRNG cannot be serialised as a closure, so we persist the seed and
+   the step count and replay the market deterministically on load. That keeps
+   saves small and guarantees a loaded game continues the exact same market.
+   ========================================================================= */
+function serialise(){
+  S.lastWall = Date.now();
+  return JSON.stringify({
+    v:1, s:S,
+    mkt:{ seed:MKT.seed ?? S.seed, oil:MKT.oil, oilNoise:MKT.oilNoise,
+          idx:MKT.idx, hist:MKT.hist, lastHist:MKT.lastHist,
+          rndState:MKT.rndCount|0 },
+  });
+}
+
+function save(){
+  if(!hasStorage) return;
+  try { localStorage.setItem(CFG.SAVE_KEY, serialise()); }
+  catch(e){ hasStorage = false; showBanner("Browser storage unavailable — this session is memory-only. Use Export Save in Company to keep your run."); }
+}
+
+function load(raw){
+  const d = JSON.parse(raw);
+  if(!d || !d.s) throw new Error("not a Kription save");
+  S = d.s;
+  // Rebuild the market: same seed, then restore the evolved values directly.
+  MKT = newMarket(d.mkt.seed);
+  MKT.oil = d.mkt.oil; MKT.oilNoise = d.mkt.oilNoise;
+  MKT.idx = d.mkt.idx; MKT.hist = d.mkt.hist; MKT.lastHist = d.mkt.lastHist;
+  MKT.seed = d.mkt.seed;
+  // Advance the PRNG so subsequent draws are not a replay of the first ones.
+  for(let i=0;i<((S.day|0)*3);i++) MKT.rnd();
+  snapshotMarket();
+  return S;
+}
+
+function tryLoad(){
+  if(!hasStorage) return false;
+  let raw = null;
+  try { raw = localStorage.getItem(CFG.SAVE_KEY); }
+  catch(e){ hasStorage = false; return false; }
+  if(!raw) return false;
+  try { load(raw); return true; }
+  catch(e){ console.warn("save rejected:", e); return false; }
+}
+
+/* ==========================================================================
+   OFFLINE PROGRESS
+   Ships finish the voyage they are on and then go IDLE. Decisions are deferred,
+   never auto-resolved, so returning to the game never means finding that it
+   played itself. The day cap exists so OPEX and the market don't run away.
+   ========================================================================= */
+function applyOffline(){
+  const wall = Date.now() - (S.lastWall || Date.now());
+  if(wall < 30000) return null;
+  const wanted = (wall/1000) / CFG.SEC_PER_DAY;
+  const days = Math.min(wanted, CFG.OFFLINE_CAP_DAYS);
+  if(days < 0.5) return null;
+
+  const cash0 = S.cash, done0 = S.voyagesDone;
+  const logLen0 = S.log.length;
+  simDays(days, true);
+  return {
+    days, capped: wanted > CFG.OFFLINE_CAP_DAYS, wantedDays: wanted,
+    cashDelta: S.cash - cash0,
+    voyages: S.log.slice(0, S.log.length - logLen0),
+    completed: S.voyagesDone - done0,
+  };
+}
+
+/* ############################################################################
+   §SIM — the tick. Integrates in steps of at most MAX_STEP_DAYS so a long
+   catch-up produces the same result as playing it through.
+   ######################################################################### */
+
+function simDays(days, quiet){
+  let left = days, guard = 0;
+  while(left > 1e-6 && guard++ < 20000){
+    const dt = Math.min(left, CFG.MAX_STEP_DAYS);
+    stepSim(dt, quiet);
+    left -= dt;
+  }
+}
+
+function stepSim(dt, quiet){
+  S.day += dt;
+  stepMarket(MKT, dt, S.day);
+
+  for(const sh of S.ships){
+    accrueDaily(sh, dt);
+    if(sh.voyage) advanceVoyage(sh, dt, quiet);
+  }
+
+  // Cash curve, sampled daily
+  const d = Math.floor(S.day);
+  if(!S.daily.length || S.daily[S.daily.length-1].day !== d){
+    S.daily.push({ day:d, cash:Math.round(S.cash) });
+    if(S.daily.length > 800) S.daily.shift();
+  }
+
+  // The cargo board turns over roughly weekly
+  if(S.day - S.fixturesStamp >= CFG.FIXTURE_REFRESH_DAYS) refreshFixtures();
+
+  if(S.cash < 0 && !S.bust) onInsolvent();
+}
+
+/* Daily OPEX and debt service — charged whatever the ship is doing. That is
+   the whole point of OPEX, and it is what kills an idle fleet. */
+function accrueDaily(sh, dt){
+  const cls = shipCls(sh);
+  const opex = opexDay(cls, shipAge(sh)) * dt;
+  S.cash -= opex; S.ledger.opex += opex;
+
+  if(sh.debt && sh.debt.principal > 0){
+    const i = sh.debt.principal * sh.debt.rate / 365 * dt;
+    const p = Math.min(sh.debt.principal, sh.debt.orig / sh.debt.termDays * dt);
+    sh.debt.principal -= p; sh.debt.paidI += i; sh.debt.paidP += p;
+    S.cash -= (i+p); S.ledger.interest += i; S.ledger.principal += p;
+  }
+}
+
+/* ==========================================================================
+   VOYAGE LIFECYCLE
+   The plan is computed once at fixing. Actuals accrue phase by phase as the
+   voyage runs, so bunkers really leave the tanks and port bills really land on
+   the day of the call. Settlement at the end compares the two.
+   ========================================================================= */
+function fixVoyage(sh, fx, speed){
+  const est = voyageEstimate(sh, fx, speed, MKT, { year: year() });
+  if(est.qty <= 0) return { ok:false, why:"She cannot lift this cargo." };
+
+  sh.voyage = {
+    fx: JSON.parse(JSON.stringify(fx)),
+    plan: est, speed: est.speed,
+    elapsed: 0,
+    phase: est.balDays > 0.01 ? "ballast" : "loading",
+    // actuals
+    act: { bunkerCost:0, bunkerMt:{}, portDA:0, freight:0, demurrage:0,
+           carbon:0, days:0, delayDays:0 },
+    billed: { load:false, disch:false },
+    startDay: S.day,
+  };
+  sh.status = sh.voyage.phase;
+  S.fixtures = S.fixtures.filter(f => f.id !== fx.id);
+  return { ok:true, est };
+}
+
+/* Which phase is the ship in, and how far through it. */
+function phaseOf(v){
+  const p = v.plan, e = v.elapsed;
+  let t = 0;
+  if(e < (t += p.balDays))   return { name:"ballast",     into:e,               len:p.balDays };
+  if(e < (t += p.loadDays))  return { name:"loading",     into:e-p.balDays,     len:p.loadDays };
+  if(e < (t += p.ladDays))   return { name:"laden",       into:e-p.balDays-p.loadDays, len:p.ladDays };
+  return { name:"discharging", into:e-p.balDays-p.loadDays-p.ladDays, len:p.dischDays };
+}
+
+function advanceVoyage(sh, dt, quiet){
+  const v = sh.voyage, p = v.plan, cls = shipCls(sh);
+  const ph = phaseOf(v);
+  const lp = PORTS[v.fx.load], dp = PORTS[v.fx.disch];
+
+  // --- burn fuel for this slice --------------------------------------
+  let mtDay = 0, inEca = false;
+  if(ph.name === "ballast" || ph.name === "laden"){
+    mtDay = burnAt(cls, v.speed, ph.name === "laden");
+    // ECA fraction of the leg, applied pro-rata across it
+    const legNm  = ph.name === "laden" ? p.ladNm : p.balNm;
+    const legEca = ph.name === "laden"
+      ? seaRoute(v.fx.load, v.fx.disch).ecaNm
+      : seaRoute(sh.port, v.fx.load).ecaNm;
+    inEca = legNm > 0 && (ph.into/Math.max(ph.len,1e-9)) < (legEca/legNm);
+  } else {
+    mtDay = cls.auxPort;
+    inEca = (ph.name === "loading" ? lp : dp).eca === 1;
+  }
+  burnFuel(sh, mtDay*dt, inEca, ph.name === "loading" ? lp : ph.name === "discharging" ? dp : null);
+
+  // --- bill each port call once, on arrival ---------------------------
+  // Keyed off the phase reached, not off a transition: a voyage with no ballast
+  // leg starts in "loading" and would otherwise never raise the load-port bill.
+  if(ph.name !== v.phase){ v.phase = ph.name; sh.status = ph.name; }
+  if((ph.name === "loading" || ph.name === "laden" || ph.name === "discharging") && !v.billed.load){
+    v.billed.load = true; sh.port = v.fx.load;
+    const da = portDA(lp, cls); v.act.portDA += da;
+    S.cash -= da; S.ledger.portDA += da;
+  }
+  if(ph.name === "discharging" && !v.billed.disch){
+    v.billed.disch = true;
+    const da = portDA(dp, cls); v.act.portDA += da;
+    S.cash -= da; S.ledger.portDA += da;
+  }
+
+  v.elapsed += dt; v.act.days += dt;
+  if(v.elapsed >= p.days - 1e-9) settleVoyage(sh, quiet);
+}
+
+/* Consume bunkers, switching grade inside an ECA. If the tanks run dry the
+   ship must lift wherever she is, at that port's price plus a hurry premium —
+   which is exactly the penalty for not planning a bunker call. */
+function burnFuel(sh, mt, inEca, atPort){
+  if(mt <= 0) return;
+  const grade = inEca ? "mgo" : (sh.scrubber ? "hsfo" : "vlsfo");
+  const v = sh.voyage;
+  let need = mt;
+  const have = sh.rob[grade] || 0;
+  const use = Math.min(have, need);
+  if(use > 0){
+    sh.rob[grade] = have - use; need -= use;
+    const c = use * (sh.robCost[grade] ?? CFG.FUEL[grade].base);
+    v.act.bunkerCost += c; S.cash -= c; S.ledger.bunkers += c;
+    v.act.bunkerMt[grade] = (v.act.bunkerMt[grade]||0) + use;
+  }
+  if(need > 0.0001){
+    // Emergency stem. Priced at the nearest port that actually sells it.
+    const port = atPort || PORTS[sh.port] || PORTS.rotterdam;
+    const px = (bunkerPrice(port, grade, MKT) ?? CFG.FUEL[grade].base*1.25)
+               * (1 + CFG.EMERGENCY_LIFT_PREMIUM);
+    const c = need * px;
+    v.act.bunkerCost += c; S.cash -= c; S.ledger.bunkers += c;
+    v.act.bunkerMt[grade] = (v.act.bunkerMt[grade]||0) + need;
+    v.act.emergency = (v.act.emergency||0) + need;
+    sh.robCost[grade] = px;
+  }
+}
+
+function settleVoyage(sh, quiet){
+  const v = sh.voyage, p = v.plan, cls = shipCls(sh);
+  const lp = PORTS[v.fx.load], dp = PORTS[v.fx.disch];
+
+  // Freight settles on completion of discharge.
+  const net = p.net;
+  S.cash += net; S.ledger.freight += net;
+  v.act.freight = net;
+
+  // Demurrage / despatch on the actual port time.
+  const dem = p.demurrage;
+  S.cash += dem; S.ledger.demurrage += dem;
+  v.act.demurrage = dem;
+
+  // Carbon settles on the fuel actually burned, not the plan.
+  const scope = euScope(lp, dp);
+  const ets = etsCost(v.act.bunkerMt, scope);
+  const feu = fuelEuCost(v.act.bunkerMt, scope);
+  const carbon = ets.cost + feu.cost;
+  S.cash -= carbon; S.ledger.carbon += carbon;
+  v.act.carbon = carbon; v.act.etsCo2 = ets.co2; v.act.feuIntensity = feu.intensity;
+
+  const days  = Math.max(v.act.days, 0.01);
+  const costs = v.act.bunkerCost + v.act.portDA + carbon;
+  const gvp   = net - costs + dem;
+  const tce   = gvp/days;
+  const opex  = opexDay(cls, shipAge(sh)) * days;
+
+  // Record
+  sh.port = v.fx.disch; sh.status = "idle"; sh.voyage = null;
+  sh.voyages++; sh.lifeDays += days; sh.lifeGvp += gvp;
+  sh.lifeTce.push(Math.round(tce)); if(sh.lifeTce.length>40) sh.lifeTce.shift();
+  S.voyagesDone++;
+
+  const entry = {
+    day: Math.round(S.day), shipId: sh.id, shipName: sh.name,
+    load: v.fx.load, disch: v.fx.disch, cargo: v.fx.cargo,
+    loadName: lp.name, dischName: dp.name,
+    qty: Math.round(p.qty), rate: v.fx.rate, speed: v.speed,
+    days, balDays:p.balDays, ladDays:p.ladDays, loadDays:p.loadDays, dischDays:p.dischDays,
+    balNm:p.balNm, ladNm:p.ladNm,
+    gross:p.gross, comm:p.comm, net,
+    bunkerCost: v.act.bunkerCost, bunkerMt: v.act.bunkerMt, emergency: v.act.emergency||0,
+    portDA: v.act.portDA, daLoad:p.daLoad, daDisch:p.daDisch,
+    carbon, etsCost:ets.cost, feuCost:feu.cost, etsCo2:ets.co2, euScope:scope,
+    demurrage: dem, laytime:p.laytime, overrun:p.overrun, demRate:p.demRate,
+    costs, gvp, tce, opex, netCash: gvp-opex,
+  };
+  S.log.unshift(entry);
+  if(S.log.length > 200) S.log.pop();
+
+  if(!quiet) onVoyageDone(entry, sh);
+  return entry;
+}
+
+/* ==========================================================================
+   FIXTURE BOARD
+   Only cargoes the fleet could actually lift, from where the ships actually
+   are. A ship in a dead-end port gets a thin board — which is the lesson.
+   ========================================================================= */
+function refreshFixtures(force){
+  S.fixturesStamp = S.day;
+  const rnd = MKT.rnd;
+  const out = [];
+  const idle = S.ships.filter(s => s.status === "idle");
+  const anchors = idle.length ? idle : S.ships;
+  const tutorialBoard = S.voyagesDone < 2;
+  if(!anchors.length){ S.fixtures = []; return; }
+
+  // Build a weighted candidate pool per idle ship, nearest-cargo biased. Real
+  // brokers show you what is near you, plus a couple of long-ballast options.
+  for(const sh of anchors){
+    const cls = shipCls(sh);
+    const cand = [];
+    for(const r of ROUTES){
+      if(cls.dwt < r.dwt[0] || cls.dwt > r.dwt[1]) continue;
+      const lp = PORTS[r.l], dp = PORTS[r.d];
+      if(lp.bunkerOnly || dp.bunkerOnly) continue;
+      if(!lp.shoreGear && !cls.geared) continue;      // must be geared to work here
+      if(!dp.shoreGear && !cls.geared) continue;
+      if(r.iceReq && !(cls.ice >= r.iceReq)) continue;
+      const bal = seaRoute(sh.port, r.l);
+      const ladNm = seaRoute(r.l, r.d).nm;
+      // No broker offers a cargo whose approach voyage dwarfs the laden leg, and
+      // nobody ballasts a bulker across an ocean for a single stem.
+      if(bal.nm > 3000) continue;
+      if(bal.nm > 1500 && bal.nm > ladNm*2.2) continue;
+      // Opening voyages stay regional: a 45-day trade out of West Africa is a
+      // cash-flow trap on $650k, and voyage one has to finish inside a minute.
+      if(tutorialBoard && (bal.nm > 700 || ladNm > 2000)) continue;
+      // Ballast weighting: cargo 500nm away is far likelier to be offered than
+      // one 6,000nm away. This is what makes position matter.
+      const w = r.w * Math.exp(-bal.nm/2200);
+      cand.push({ r, bal:bal.nm, w });
+    }
+    if(!cand.length) continue;
+    const total = cand.reduce((a,c)=>a+c.w,0);
+    const want = clamp(3 + Math.floor(rnd()*3), 3, 5);
+    const taken = new Set();
+    for(let k=0;k<want*6 && taken.size<want;k++){
+      let x = rnd()*total, pick = cand[0];
+      for(const c of cand){ x -= c.w; if(x<=0){ pick=c; break; } }
+      const key = pick.r.l+">"+pick.r.d+">"+pick.r.c;
+      if(taken.has(key)) continue;
+      taken.add(key);
+      out.push(mkFixture(pick.r, sh, rnd));
+    }
+  }
+  S.fixtures = out;
+}
+
+function mkFixture(r, sh, rnd){
+  const cls = shipCls(sh), cargo = CARGOES[r.c];
+  const lp = PORTS[r.l], dp = PORTS[r.d];
+  const jitter = (rnd()*2-1);
+  const rate = routeRate(r, MKT, jitter);
+  // Stem size: charterers ask for a full cargo, sometimes a part cargo.
+  const full = cargoIntake(cls, cargo, lp, dp, robTot(sh));
+  const qty  = Math.round(full * (rnd() < 0.78 ? 1 : 0.72 + rnd()*0.2));
+  const laydays = Math.round(3 + rnd()*9);   // days until the laycan opens
+  const agreed = (cargo.load*lp.rateFactor && cargo.disch*dp.rateFactor)
+    ? (qty/(cargo.load*lp.rateFactor) + qty/(cargo.disch*dp.rateFactor)) * (0.90 + rnd()*0.10)
+    : 0;
+  return {
+    id: "f"+(S.nextId++), forShip: sh.id,
+    load: r.l, disch: r.d, cargo: r.c, qty, rate,
+    laytime: agreed + 1.0, demRate: Math.round(cls.dwt*0.30 + rnd()*cls.dwt*0.08),
+    laydays, terms: "FIOST", seg: ROUTES_SEG(r),
+  };
+}
+
+/* ==========================================================================
+   INSOLVENCY — Phase 1 stub. The full covenant/cure/restructuring path lands
+   with the debt system in Phase 3; for now we simply flag it and stop the clock
+   rather than pretending the run is fine.
+   ========================================================================= */
+function onInsolvent(){
+  S.bust = true; S.paused = true;
+  showSheet("Out of cash", "Your account is overdrawn.",
+    `<p class="mut sm">Daily OPEX and debt service are charged whatever your ships are doing. With no cash and no freight coming in, the run cannot continue.</p>
+     <p class="mut sm">Restructuring — handing equity to the bank and continuing smaller — arrives with the debt and covenant system in Phase 3. For now you can reset and try a different opening.</p>`,
+    `<button class="btn dang" onclick="hardReset()">Start a new run</button>`);
+}
+/* ############################################################################
+   §UI — rendering only. Nothing in this section computes economics; it asks
+   §MODEL for numbers and lays them out.
+   ######################################################################### */
+
+const $  = (id)=>document.getElementById(id);
+const esc= (s)=>String(s).replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+/* --- number formatting ---------------------------------------------------- */
+function money(n, sign){
+  const a = Math.abs(n);
+  let s;
+  if(a >= 1e9)      s = "$"+(a/1e9).toFixed(2)+"bn";
+  else if(a >= 1e6) s = "$"+(a/1e6).toFixed(a<1e7?2:1)+"M";
+  else if(a >= 1e4) s = "$"+Math.round(a/1e3)+"k";
+  else              s = "$"+Math.round(a).toLocaleString("en-US");
+  if(n < 0) s = "−"+s;
+  else if(sign) s = "+"+s;
+  return s;
+}
+const money0 = (n)=> (n<0?"−":"")+"$"+Math.round(Math.abs(n)).toLocaleString("en-US");
+const perDay = (n)=> money(n, n>0) + "/d";
+const days1  = (n)=> (Math.round(n*10)/10).toFixed(1)+"d";
+const pc     = (n)=> Math.round(n*100)+"%";
+const nm0    = (n)=> Math.round(n).toLocaleString("en-US")+" nm";
+const cls_pn = (n)=> n>=0 ? "pos" : "neg";
+const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+function dateStr(){ const d=gDate(); return d.getUTCDate()+" "+MONTHS[d.getUTCMonth()]; }
+function dateFull(day){ const d=new Date(CFG.START_EPOCH+day*86400000);
+  return d.getUTCDate()+" "+MONTHS[d.getUTCMonth()]+" "+d.getUTCFullYear(); }
+
+/* --- glossary term: one plain line on first appearance -------------------- */
+function T(key, label){
+  const g = GLOSSARY[key]; if(!g) return esc(label||key);
+  const fresh = !S.seen[key];
+  return `<span class="term${fresh?" fresh":""}" data-t="${key}">${esc(label||g[0])}</span>`;
+}
+function markSeen(key){ if(!S.seen[key]){ S.seen[key]=1; } }
+
+/* ==========================================================================
+   TOP BAR + TABS
+   ========================================================================= */
+const TABS = [
+  { id:"fleet",   label:"Fleet",   ic:'<path d="M3 17h18l-2 4H5l-2-4Z"/><path d="M5 17V9h11l3 8"/><path d="M9 9V5h5v4"/>' },
+  { id:"charter", label:"Charter", ic:'<path d="M5 4h10l4 4v12H5z"/><path d="M9 12h6M9 16h6"/>' },
+  { id:"market",  label:"Market",  ic:'<path d="M4 19V9M9 19V5M14 19v-7M19 19v-4"/>' },
+  { id:"yard",    label:"Yard",    ic:'<path d="M4 20V8l8-4 8 4v12"/><path d="M9 20v-6h6v6"/>' },
+  { id:"company", label:"Company", ic:'<path d="M4 20V7l8-3 8 3v13"/><path d="M9 11h2M13 11h2M9 15h2M13 15h2"/>' },
+];
+
+function renderTabs(){
+  $("tabs").innerHTML = TABS.map(t=>{
+    const dot = tabAlert(t.id) ? '<span class="dot"></span>' : "";
+    return `<button role="tab" data-tab="${t.id}" aria-selected="${S.tab===t.id}">
+      ${dot}<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+        stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${t.ic}</svg>
+      <span class="tl">${t.label}</span></button>`;
+  }).join("");
+}
+function tabAlert(id){
+  if(id==="charter") return S.ships.some(s=>s.status==="idle") && S.fixtures.length>0;
+  return false;
+}
+
+function renderTop(){
+  $("k-cash").textContent = money(S.cash);
+  $("k-cash").className = "val tnum " + (S.cash<0?"neg":"");
+  const nd = netPerDay();
+  $("k-net").textContent = perDay(nd);
+  $("k-net").className = "val tnum " + cls_pn(nd);
+  $("k-util").textContent = pc(utilisation());
+  $("k-date").textContent = dateStr();
+  $("k-spd").textContent = S.paused ? "❚❚" : S.speed+"×";
+  $("clockbtn").className = S.paused ? "paused" : "";
+}
+
+/* Net daily result: what the fleet is actually earning per day right now.
+   Voyage contribution is the plan's TCE for ships at sea, zero for idle ships,
+   less OPEX and debt service for every ship whatever it is doing. */
+function netPerDay(){
+  let n = 0;
+  for(const sh of S.ships){
+    const cls = shipCls(sh);
+    if(sh.voyage) n += sh.voyage.plan.tce;
+    n -= opexDay(cls, shipAge(sh));
+    if(sh.debt && sh.debt.principal>0)
+      n -= sh.debt.principal*sh.debt.rate/365 + sh.debt.orig/sh.debt.termDays;
+  }
+  return n;
+}
+function utilisation(){
+  if(!S.ships.length) return 0;
+  return S.ships.filter(s=>s.status!=="idle").length / S.ships.length;
+}
+
+/* ==========================================================================
+   SHEETS
+   ========================================================================= */
+let sheetOpen = false;
+function showSheet(title, sub, body, foot){
+  $("sh-t").innerHTML = title; $("sh-s").innerHTML = sub || "";
+  $("sh-s").style.display = sub ? "" : "none";
+  $("sh-b").innerHTML = body;
+  $("sh-f").innerHTML = foot || ""; $("sh-f").style.display = foot ? "" : "none";
+  $("sh-b").scrollTop = 0;
+  $("sheet").classList.add("on"); $("scrim").classList.add("on");
+  sheetOpen = true;
+}
+function hideSheet(){
+  $("sheet").classList.remove("on"); $("scrim").classList.remove("on");
+  sheetOpen = false; dirty();
+}
+
+function showBanner(msg){
+  const b = $("banner"); if(!b) return;
+  b.textContent = msg; b.style.display = "block";
+}
+
+let toastN = 0;
+function toast(msg, kind){
+  const el = document.createElement("div");
+  el.className = "toast " + (kind||"");
+  el.innerHTML = msg;
+  $("toasts").appendChild(el);
+  const n = ++toastN;
+  setTimeout(()=>{ el.style.transition="opacity .3s,transform .3s";
+    el.style.opacity=0; el.style.transform="translateY(-8px)";
+    setTimeout(()=>el.remove(),320); }, 3600);
+}
+
+/* ==========================================================================
+   COACH — onboarding callouts, once each, never blocking
+   ========================================================================= */
+let coachQueue = [];
+function coach(id, title, body){
+  if(S.coached[id]) return;
+  S.coached[id] = 1;
+  coachQueue.push({ title, body });
+  if(coachQueue.length === 1) showNextCoach();
+}
+function showNextCoach(){
+  const c = coachQueue[0];
+  if(!c){ $("coach").classList.remove("on"); return; }
+  $("co-t").textContent = c.title; $("co-b").innerHTML = c.body;
+  $("coach").classList.add("on");
+}
+$("co-ok").onclick = ()=>{ coachQueue.shift(); $("coach").classList.remove("on");
+  if(coachQueue.length) setTimeout(showNextCoach, 220); };
+
+/* ==========================================================================
+   RENDER DISPATCH
+   ========================================================================= */
+let _dirty = true;
+const dirty = ()=>{ _dirty = true; };
+
+function render(){
+  renderTop(); renderTabs();
+  const el = $("screen");
+  const fns = { fleet:vFleet, charter:vCharter, market:vMarket, yard:vYard, company:vCompany };
+  el.innerHTML = `<div id="banner"${hasStorage?' style="display:none"':''}>${
+    hasStorage?"":"Browser storage unavailable — this session is memory-only. Use Export Save in Company to keep your run."}</div>`
+    + (fns[S.tab]||vFleet)();
+  // introduce any glossary terms this render surfaced
+  el.querySelectorAll(".term.fresh").forEach(n=>markSeen(n.dataset.t));
+}
+
+/* ==========================================================================
+   FLEET
+   ========================================================================= */
+function vFleet(){
+  let h = "";
+  const idle = S.ships.filter(s=>s.status==="idle");
+
+  h += `<h2 class="sect">Fleet — ${S.ships.length} vessel${S.ships.length===1?"":"s"}</h2>`;
+  for(const sh of S.ships) h += shipCard(sh);
+
+  if(idle.length){
+    h += `<div style="margin-top:14px">
+      <button class="btn pri ${S.voyagesDone<2?"pulse":""}" onclick="goCharter()">
+        Find cargo${idle.length>1?` — ${idle.length} ships idle`:""}
+      </button></div>`;
+  }
+  if(S.log.length){
+    h += `<h2 class="sect">Recent voyages</h2>`;
+    for(const e of S.log.slice(0,4)) h += logCard(e);
+    if(S.log.length>4) h += `<button class="btn sm" style="width:100%;margin-top:2px" onclick="sheetAllVoyages()">All ${S.log.length} voyages</button>`;
+  }
+  return h;
+}
+
+function shipCard(sh){
+  const cls = shipCls(sh);
+  const v = sh.voyage;
+  const age = shipAge(sh);
+  let statusPill, line2, prog = "";
+
+  if(v){
+    const p = v.plan, ph = phaseOf(v);
+    const label = { ballast:"Ballast", loading:"Loading", laden:"Laden", discharging:"Discharging" }[ph.name];
+    const left = Math.max(0, p.days - v.elapsed);
+    statusPill = `<span class="pill on">${label}</span>`;
+    line2 = `${esc(p.loadName)} → ${esc(p.dischName)} · ${days1(left)} to go`;
+    prog = `<div class="bar pos" style="margin-top:9px"><i style="width:${pc(clamp(v.elapsed/p.days,0,1))}"></i></div>`;
+  } else {
+    statusPill = `<span class="pill idle">Idle</span>`;
+    const p = PORTS[sh.port];
+    const liqTxt = p.liq>0.75?"strong":p.liq>0.5?"moderate":p.liq>0.3?"thin":"very thin";
+    line2 = `At ${esc(p.name)} · cargo on offer ${liqTxt}`;
+  }
+
+  const robMt = Math.round(robTot(sh));
+  const fuelPct = robMt/cls.fuelCap;
+
+  return `<div class="card tap" onclick="sheetShip(${sh.id})">
+    <div class="between">
+      <div class="grow">
+        <div class="b trunc">${esc(sh.name)}</div>
+        <div class="xs mut2">${cls.name} · ${cls.dwt.toLocaleString()} dwt · ${age}yr${cls.geared?" · geared":""}</div>
+      </div>${statusPill}
+    </div>
+    <div class="sm mut trunc" style="margin-top:7px">${line2}</div>
+    ${prog}
+    ${has("bunkers") ? `<div class="row xs mut2" style="margin-top:8px;gap:6px">
+      <span>Bunkers</span>
+      <div class="bar ${fuelPct<0.18?"bad":fuelPct<0.35?"warn":""}" style="flex:1;max-width:82px"><i style="width:${pc(clamp(fuelPct,0,1))}"></i></div>
+      <span class="mono">${robMt} mt</span>
+      ${!v?`<button class="btn sm" style="margin-left:auto;min-height:30px;padding:0 10px"
+        onclick="event.stopPropagation();sheetBunker(${sh.id})">Bunker</button>`:""}
+    </div>`:""}
+  </div>`;
+}
+
+function logCard(e){
+  return `<div class="card tap" onclick="sheetVoyage(${e.day},${e.shipId})">
+    <div class="between">
+      <div class="grow trunc">
+        <div class="sm b trunc">${esc(e.loadName)} → ${esc(e.dischName)}</div>
+        <div class="xs mut2">${days1(e.days)} · ${CARGOES[e.cargo].name} · ${Math.round(e.qty).toLocaleString()} mt</div>
+      </div>
+      <div style="text-align:right">
+        <div class="b ${cls_pn(e.gvp)}">${money(e.gvp,e.gvp>0)}</div>
+        <div class="xs mut2 mono">TCE ${money(e.tce)}/d</div>
+      </div>
+    </div></div>`;
+}
+
+/* --- ship detail sheet ---------------------------------------------------- */
+function sheetShip(id){
+  const sh = S.ships.find(s=>s.id===id); if(!sh) return;
+  const cls = shipCls(sh), age = shipAge(sh);
+  const val = assetValue(sh.cls, age, MKT);
+  const v = sh.voyage;
+  let h = "";
+
+  if(v){
+    const p = v.plan, ph = phaseOf(v);
+    h += `<div class="card" style="margin:0 0 12px">
+      <div class="between"><div class="mut sm">Current voyage</div>
+        <span class="pill on">${ph.name}</span></div>
+      <div class="b" style="margin-top:4px">${esc(p.loadName)} → ${esc(p.dischName)}</div>
+      <div class="xs mut2">${CARGOES[v.fx.cargo].name} · ${Math.round(p.qty).toLocaleString()} mt · ${v.fx.rate.toFixed(2)} $/mt</div>
+      <div class="bar pos" style="margin-top:9px"><i style="width:${pc(clamp(v.elapsed/p.days,0,1))}"></i></div>
+      <div class="row xs mut2" style="margin-top:5px"><span>${days1(v.elapsed)} elapsed</span>
+        <span style="margin-left:auto">${days1(Math.max(0,p.days-v.elapsed))} remaining</span></div>
+      <button class="btn sm" style="width:100%;margin-top:10px" onclick="sheetEstimate(${sh.id})">Voyage breakdown</button>
+    </div>`;
+  }
+
+  h += `<h2 class="sect" style="margin-top:0">Particulars</h2><div class="card" style="margin:0">
+    ${kv("Class", cls.name)}
+    ${kv(T("dwt","Deadweight"), cls.dwt.toLocaleString()+" mt")}
+    ${kv("Grain capacity", cls.grainCubic.toLocaleString()+" m³")}
+    ${kv("Summer "+T("draft","draft"), cls.draft.toFixed(1)+" m")}
+    ${kv("Beam", cls.beam.toFixed(1)+" m")}
+    ${kv("Cargo gear", cls.geared?`${T("geared","Geared")} — 4×${cls.swl}t cranes`:"Gearless")}
+    ${kv("Built", sh.built+" · "+age+" years")}
+    ${kv("Design speed", cls.designSpeed.toFixed(1)+" kn")}
+  </div>`;
+
+  h += `<h2 class="sect">Consumption curve</h2><div class="card" style="margin:0">
+    <div class="xs mut" style="margin-bottom:8px">Laden burn, mt/day. ${T("slowsteam","Consumption rises with roughly the cube of speed")} — so the last knot is always the dearest.</div>
+    ${consTable(cls)}
+  </div>`;
+
+  h += `<h2 class="sect">Bunkers on board</h2><div class="card" style="margin:0">
+    ${Object.entries(sh.rob).filter(([g,mt])=>mt>0.5).map(([g,mt])=>
+      kv(T(g, CFG.FUEL[g].name), Math.round(mt).toLocaleString()+" mt @ "+money0(sh.robCost[g]||0)+"/mt")).join("") || `<div class="mut sm">Tanks empty.</div>`}
+    ${kv("Capacity", cls.fuelCap.toLocaleString()+" mt")}
+  </div>`;
+
+  h += `<h2 class="sect">Commercial</h2><div class="card" style="margin:0">
+    ${kv("Market value", money(val))}
+    ${kv("Daily "+T("opex","OPEX"), money0(opexDay(cls, age)))}
+    ${sh.debt ? kv("Mortgage outstanding", money(sh.debt.principal)) : kv("Mortgage","None")}
+    ${sh.debt ? kv(T("ltv","LTV"), pc(sh.debt.principal/val)) : ""}
+    ${kv("Voyages completed", sh.voyages)}
+    ${sh.lifeDays>0 ? kv("Lifetime "+T("tce","TCE"), money(sh.lifeGvp/sh.lifeDays)+"/day") : ""}
+  </div>`;
+
+  showSheet(esc(sh.name), `${cls.name} · ${PORTS[sh.port].name}`, h,
+    sh.status==="idle" ? `<button class="btn pri" onclick="hideSheet();goCharter(${sh.id})">Find cargo for her</button>` : null);
+}
+
+function consTable(cls){
+  const rows = [];
+  for(let s=cls.minSpeed; s<=cls.maxSpeed+1e-9; s+=1){
+    const b = burnAt(cls, s, true), bb = burnAt(cls, s, false);
+    rows.push({s, b, bb});
+  }
+  const max = Math.max(...rows.map(r=>r.b));
+  return rows.map(r=>`<div class="row" style="padding:3px 0;gap:8px">
+    <span class="xs mono mut" style="width:38px">${r.s.toFixed(1)}kn</span>
+    <div class="bar" style="flex:1"><i style="width:${pc(r.b/max)}"></i></div>
+    <span class="xs mono" style="width:74px;text-align:right">${r.b.toFixed(1)} / ${r.bb.toFixed(1)}</span>
+  </div>`).join("") + `<div class="xs mut2" style="margin-top:6px">laden / ballast</div>`;
+}
+
+const kv = (k,v,c)=>`<div class="kv"><span class="k">${k}</span><span class="v ${c||""}">${v}</span></div>`;
+const kvt= (k,v,c)=>`<div class="kv tot"><span class="k">${k}</span><span class="v ${c||""}">${v}</span></div>`;
+
+/* ==========================================================================
+   CHARTER
+   ========================================================================= */
+let charterShip = null;
+let fxSpeed = {};
+function goCharter(shipId){
+  S.tab = "charter";
+  const idle = S.ships.filter(s=>s.status==="idle");
+  charterShip = shipId || (idle[0] && idle[0].id) || null;
+  if(S.voyagesDone === 0)
+    coach("pick", "Pick a cargo", "Each card is a firm offer: the cargo, where it loads and discharges, and what you'd earn. Tap <b>Fix</b> to take one. Tap the card itself to see how the number is built up.");
+  dirty();
+}
+
+function vCharter(){
+  const idle = S.ships.filter(s=>s.status==="idle");
+  if(!idle.length){
+    return `<div class="empty"><div class="big">⚓</div>
+      <div class="b">Every ship is employed</div>
+      <div class="sm mut2" style="margin-top:6px">New cargoes appear as your vessels come free. The board turns over about once a week.</div></div>`;
+  }
+  if(!charterShip || !idle.find(s=>s.id===charterShip)) charterShip = idle[0].id;
+  const sh = S.ships.find(s=>s.id===charterShip);
+
+  let h = "";
+  if(idle.length > 1){
+    h += `<div class="seg">${idle.map(s=>
+      `<button aria-selected="${s.id===charterShip}" onclick="charterShip=${s.id};dirty()">${esc(s.name.split(" ").slice(-1)[0])}</button>`).join("")}</div>`;
+  }
+
+  const p = PORTS[sh.port];
+  const liqTxt = p.liq>0.75?"Strong":p.liq>0.5?"Moderate":p.liq>0.3?"Thin":"Very thin";
+  const liqCls = p.liq>0.5?"pos":p.liq>0.3?"haz":"neg";
+  h += `<div class="card" style="padding:11px 13px">
+    <div class="between"><div>
+      <div class="xs mut2">Open at</div>
+      <div class="b">${esc(p.name)}</div>
+    </div><div style="text-align:right">
+      <div class="xs mut2">${has("ballast")?T("liquidity","Cargo on offer"):"Cargo on offer"}</div>
+      <div class="b ${liqCls}">${liqTxt}</div>
+    </div></div></div>`;
+
+  const list = S.fixtures.filter(f=>f.forShip===sh.id);
+  if(!list.length){
+    h += `<div class="empty"><div class="big">📋</div><div class="b">Nothing on the board here</div>
+      <div class="sm mut2" style="margin-top:6px">${esc(p.name)} is a thin market for this ship. Wait for the board to turn over, or accept a ballast leg to a busier port.</div></div>`;
+    return h;
+  }
+
+  h += `<h2 class="sect">Cargoes on offer</h2>`;
+  const ests = list.map(f=>({ f, e: voyageEstimate(sh, f, fxSpeed[f.id] ?? (shipCls(sh).designSpeed-1.5), MKT, {year:year()}) }));
+  for(const {f,e} of ests) h += fixtureCard(sh, f, e);
+  return h;
+}
+
+function fixtureCard(sh, f, e){
+  const dp = PORTS[f.disch];
+  const balPill = has("ballast") && e.balDays > 0.05
+    ? `<span class="pill warn">${days1(e.balDays)} ballast</span>` : "";
+  const liq = dp.liq;
+  const onward = has("ballast")
+    ? `<div class="xs mut2" style="margin-top:6px">Onward cargo from ${esc(dp.name)}: ${
+        liq>0.75?"strong":liq>0.5?"moderate":liq>0.3?"thin":'<span class="haz">very thin</span>'}</div>`
+    : "";
+  return `<div class="card tap" onclick="sheetFixture(${sh.id},'${f.id}')">
+    <div class="between">
+      <div class="grow trunc">
+        <div class="b trunc">${esc(e.loadName)} → ${esc(e.dischName)}</div>
+        <div class="xs mut2 trunc">${CARGOES[f.cargo].name} · ${Math.round(e.qty).toLocaleString()} mt · ${f.rate.toFixed(2)} $/mt</div>
+      </div>
+      <div style="text-align:right;flex:none">
+        <div class="lg b ${cls_pn(e.gvp)}">${money(e.gvp, e.gvp>0)}</div>
+        <div class="xs mut2">${days1(e.days)}</div>
+      </div>
+    </div>
+    <div class="row" style="margin-top:9px;gap:6px;flex-wrap:wrap">
+      <span class="pill">${S.voyagesDone>=1?"TCE ":""}${money(e.tce)}/d</span>
+      ${balPill}
+      ${has("eca") && e.ecaNm>0 ? `<span class="pill">${T("eca","ECA")} ${Math.round(e.ecaNm/(e.balNm+e.ladNm)*100)}%</span>`:""}
+      <button class="btn pri sm" style="margin-left:auto" onclick="event.stopPropagation();doFix(${sh.id},'${f.id}')">Fix</button>
+    </div>
+    ${onward}
+  </div>`;
+}
+
+/* --- fixture detail: the second layer ------------------------------------ */
+function sheetFixture(shipId, fxId){
+  const sh = S.ships.find(s=>s.id===shipId);
+  const f  = S.fixtures.find(x=>x.id===fxId);
+  if(!sh || !f) return;
+  const cls = shipCls(sh);
+  const sp = fxSpeed[fxId] ?? (cls.designSpeed - 1.5);
+  renderFixtureSheet(sh, f, sp);
+}
+
+function renderFixtureSheet(sh, f, sp){
+  const cls = shipCls(sh);
+  const e = voyageEstimate(sh, f, sp, MKT, { year: year() });
+  const opt = has("speed") ? optimalSpeed(sh, f, MKT) : null;
+  const lp = PORTS[f.load], dp = PORTS[f.disch];
+
+  let h = "";
+
+  // headline
+  h += `<div class="card" style="margin:0 0 12px;text-align:center;padding:15px">
+    <div class="xs mut2">${S.voyagesDone>=1?T("tce","Time charter equivalent"):"Earnings per day"}</div>
+    <div class="xl bb ${cls_pn(e.tce)}" style="margin:2px 0">${money(e.tce)}<span class="sm mut">/day</span></div>
+    <div class="sm mut">${money(e.gvp, e.gvp>0)} over ${days1(e.days)}</div>
+  </div>`;
+
+  // speed control
+  if(has("speed")){
+    h += `<h2 class="sect" style="margin-top:0">Speed</h2><div class="card" style="margin:0">
+      <div class="between"><div class="b mono">${sp.toFixed(2)} kn</div>
+        <div class="xs mut">${e.fuel.vlsfo||e.fuel.hsfo?`${burnAt(cls,sp,true).toFixed(1)} mt/d laden`:""}</div></div>
+      <input type="range" min="${cls.minSpeed}" max="${cls.maxSpeed}" step="0.25" value="${sp}"
+        oninput="fxSpeed['${f.id}']=+this.value;renderFixtureSheet(S.ships.find(s=>s.id===${sh.id}),S.fixtures.find(x=>x.id==='${f.id}'),+this.value)">
+      <div class="row xs mut2"><span>${cls.minSpeed} kn slow</span><span style="margin-left:auto">${cls.maxSpeed} kn full</span></div>
+      ${opt ? `<div class="between xs" style="margin-top:8px;padding-top:8px;border-top:1px solid var(--line)">
+        <span class="mut">Best TCE on this fixture</span>
+        <button class="btn sm" style="min-height:30px" onclick="fxSpeed['${f.id}']=${opt.speed};renderFixtureSheet(S.ships.find(s=>s.id===${sh.id}),S.fixtures.find(x=>x.id==='${f.id}'),${opt.speed})">${opt.speed} kn → ${money(opt.tce)}/d</button>
+      </div>`:""}
+    </div>`;
+  }
+
+  // legs
+  h += `<h2 class="sect">Legs</h2><div class="card" style="margin:0">
+    ${e.balNm>0 ? kv(has("ballast") ? T("ballast","Ballast")+` to ${esc(lp.name)}`
+                                    : `Sailing to ${esc(lp.name)}`,
+                    nm0(e.balNm)+" · "+days1(e.balDays), "mut") : ""}
+    ${kv("Load at "+esc(lp.name), days1(e.loadDays))}
+    ${kv(T("laden","Laden")+` to ${esc(dp.name)}`, nm0(e.ladNm)+" · "+days1(e.ladDays))}
+    ${kv("Discharge at "+esc(dp.name), days1(e.dischDays))}
+    ${kvt("Total voyage", days1(e.days))}
+  </div>`;
+
+  // P&L
+  h += `<h2 class="sect">Voyage result</h2><div class="card" style="margin:0">
+    ${kv(`Freight — ${Math.round(e.qty).toLocaleString()} mt × $${f.rate.toFixed(2)}`, money0(e.gross))}
+    ${kv(T("addcomm","Commissions")+" 3.75%", "−"+money0(e.comm), "neg")}
+    ${kv("Net freight", money0(e.net))}
+    ${e.bunkerLines.map(b=>kv(T(b.grade,CFG.FUEL[b.grade].name)+` ${Math.round(b.mt)} mt @ $${b.px}`, "−"+money0(b.cost), "neg")).join("")}
+    ${kv(T("da","Port disbursements")+" — "+esc(lp.name), "−"+money0(e.daLoad), "neg")}
+    ${kv("Port disbursements — "+esc(dp.name), "−"+money0(e.daDisch), "neg")}
+    ${e.ets.cost>1 ? kv(T("ets","EU ETS")+` — ${Math.round(e.ets.co2)} t CO₂ @ ${pc(e.euScope)} scope`, "−"+money0(e.ets.cost), "neg") : ""}
+    ${e.feu.cost>1 ? kv(T("fueleu","FuelEU")+" penalty", "−"+money0(e.feu.cost), "neg") : ""}
+    ${has("demurrage") && Math.abs(e.demurrage)>100 ? kv(
+        e.overrun>0 ? T("demurrage","Demurrage")+` ${days1(e.overrun)} @ ${money0(e.demRate)}/d`
+                    : T("despatch","Despatch")+` ${days1(-e.overrun)} saved`,
+        (e.demurrage>0?"+":"−")+money0(Math.abs(e.demurrage)), e.demurrage>0?"pos":"neg") : ""}
+    ${kvt("Gross voyage profit", money0(e.gvp), cls_pn(e.gvp))}
+    ${kv(T("opex","OPEX")+" "+days1(e.days)+" @ "+money0(opexDay(cls,shipAge(sh)))+"/d", "−"+money0(e.opex), "neg")}
+    ${kvt("Net contribution", money0(e.netCash), cls_pn(e.netCash))}
+  </div>`;
+
+  // terms
+  h += `<h2 class="sect">Terms</h2><div class="card" style="margin:0">
+    ${kv("Charter party", T("fiost","FIOST")+" — charterer loads and discharges")}
+    ${kv(T("laytime","Laytime")+" allowed", days1(e.laytime))}
+    ${kv("Laycan opens", "in "+f.laydays+" days")}
+    ${kv(T("stowage","Stowage factor"), CARGOES[f.cargo].sf.toFixed(2)+" m³/mt")}
+    ${kv("Intake limited by", intakeLimit(cls, CARGOES[f.cargo], lp, dp, robTot(sh)))}
+  </div>`;
+
+  showSheet(`${esc(lp.name)} → ${esc(dp.name)}`,
+    `${CARGOES[f.cargo].name} · ${esc(sh.name)}`, h,
+    `<button class="btn pri" onclick="doFix(${sh.id},'${f.id}',${sp})">Fix at ${money(e.tce)}/day</button>`);
+}
+
+/* Which constraint actually caps the stem — deadweight, draft or hold cubic. */
+function intakeLimit(cls, cargo, lp, dp, rob){
+  const constants = cls.dwt*0.022;
+  const dwtAvail = cls.dwt - constants - Math.max(rob, cls.fuelCap*0.12);
+  const lim = (port)=> cls.dwt - (cls.draft - Math.min(port.maxDraft, cls.draft))*100*cls.tpc;
+  const draftLim = Math.min(lim(lp), lim(dp));
+  const cubeLim = cls.grainCubic/cargo.sf;
+  const m = Math.min(dwtAvail, draftLim, cubeLim);
+  if(m === cubeLim) return "Hold cubic — light cargo";
+  if(m === draftLim) return `Draft at ${esc(draftLim===lim(lp)?lp.name:dp.name)}`;
+  return "Deadweight";
+}
+
+function doFix(shipId, fxId, sp){
+  const sh = S.ships.find(s=>s.id===shipId);
+  const f  = S.fixtures.find(x=>x.id===fxId);
+  if(!sh || !f) return;
+  const cls = shipCls(sh);
+  const speed = sp ?? fxSpeed[fxId] ?? (cls.designSpeed - 1.5);
+  const r = fixVoyage(sh, f, speed);
+  if(!r.ok){ toast(r.why, "bad"); return; }
+  hideSheet();
+  S.tab = "fleet";
+  toast(`<b>Fixed.</b> ${esc(sh.name)} — ${esc(r.est.loadName)} → ${esc(r.est.dischName)}`, "good");
+  if(S.voyagesDone === 0)
+    coach("sailing", "She's on her way", "The voyage runs in real time — about five seconds a day. Tap the vessel card any time to see where she is and what the voyage is earning.");
+  onUnlockCheck();
+  dirty();
+}
+/* ==========================================================================
+   VOYAGE RESULT — the payoff moment. TCE in large type, breakdown one tap away.
+   ========================================================================= */
+function onVoyageDone(e, sh){
+  const bigMoment = S.voyagesDone <= 2 || Math.abs(e.tce) > 40000;
+  if(bigMoment) sheetResult(e);          // the sheet says it all; don't stack a toast on it
+  else toast(`<b>${esc(sh.name)}</b> discharged ${esc(e.dischName)} · ${money(e.gvp,true)} · TCE ${money(e.tce)}/d`,
+             e.gvp>0?"good":"bad");
+  onUnlockCheck();
+  dirty();
+}
+
+function sheetResult(e){
+  let h = `<div class="card" style="margin:0 0 12px;text-align:center;padding:16px">
+    <div class="xs mut2">${T("tce","Time charter equivalent")}</div>
+    <div class="xl bb ${cls_pn(e.tce)}" style="margin:2px 0">${money(e.tce)}<span class="sm mut">/day</span></div>
+    <div class="sm mut">${money(e.gvp,e.gvp>0)} gross voyage profit over ${days1(e.days)}</div>
+  </div>`;
+
+  if(S.voyagesDone === 1){
+    h += `<div class="card" style="margin:0 0 12px;border-color:var(--line2)">
+      <div class="sm">TCE is the number the whole industry is judged on: what the voyage earned per day, after everything you had to pay to perform it. Freight per tonne tells you almost nothing on its own — a high rate into a slow port with a long empty leg can earn less per day than a modest rate on a quick turn.</div>
+    </div>`;
+  }
+  h += voyageBreakdown(e);
+  showSheet("Voyage completed", `${esc(e.loadName)} → ${esc(e.dischName)}`, h,
+    `<button class="btn pri" onclick="hideSheet()">Continue</button>`);
+}
+
+function voyageBreakdown(e){
+  const ship = S.ships.find(s=>s.id===e.shipId);
+  const cls = ship ? shipCls(ship) : CLASSES.handysize;
+  let h = `<h2 class="sect" style="margin-top:0">Days</h2><div class="card" style="margin:0">
+    ${e.balDays>0.05 ? kv((has("ballast") ? T("ballast","Ballast") : "Sailing to load port")+" "+nm0(e.balNm),
+                          days1(e.balDays), "mut") : ""}
+    ${kv("Loading at "+esc(e.loadName), days1(e.loadDays))}
+    ${kv(T("laden","Laden")+" "+nm0(e.ladNm), days1(e.ladDays))}
+    ${kv("Discharging at "+esc(e.dischName), days1(e.dischDays))}
+    ${kvt("Total", days1(e.days))}
+    ${e.balDays>0.05?`<div class="xs mut2" style="margin-top:7px">${Math.round(e.balDays/e.days*100)}% of this voyage earned no freight. That is what ballast costs you.</div>`:""}
+  </div>`;
+
+  h += `<h2 class="sect">Money</h2><div class="card" style="margin:0">
+    ${kv(`Freight ${Math.round(e.qty).toLocaleString()} mt × $${e.rate.toFixed(2)}`, money0(e.gross))}
+    ${kv(T("addcomm","Commissions"), "−"+money0(e.comm), "neg")}
+    ${kv("Net freight", money0(e.net))}
+    ${Object.entries(e.bunkerMt).filter(([g,mt])=>mt>0.5).map(([g,mt])=>
+       kv(T(g,CFG.FUEL[g].name)+" "+Math.round(mt)+" mt", "", "mut")).join("")}
+    ${kv(T("bunkers","Bunkers")+" total", "−"+money0(e.bunkerCost), "neg")}
+    ${e.emergency>0.5?`<div class="xs haz" style="margin:-2px 0 6px">${Math.round(e.emergency)} mt lifted at sea prices plus ${pc(CFG.EMERGENCY_LIFT_PREMIUM)} — she ran short. Bunker before sailing next time.</div>`:""}
+    ${kv(T("da","Port disbursements"), "−"+money0(e.portDA), "neg")}
+    ${e.carbon>1 ? kv(T("ets","Carbon")+` — ${Math.round(e.etsCo2)} t CO₂`, "−"+money0(e.carbon), "neg") : ""}
+    ${Math.abs(e.demurrage)>100 ? kv(
+        e.overrun>0 ? T("demurrage","Demurrage")+" "+days1(e.overrun) : T("despatch","Despatch")+" "+days1(-e.overrun),
+        (e.demurrage>0?"+":"−")+money0(Math.abs(e.demurrage)), e.demurrage>0?"pos":"neg") : ""}
+    ${kvt("Gross voyage profit", money0(e.gvp), cls_pn(e.gvp))}
+    ${kv(T("opex","OPEX")+" "+days1(e.days), "−"+money0(e.opex), "neg")}
+    ${kvt("Net contribution", money0(e.netCash), cls_pn(e.netCash))}
+  </div>`;
+
+  if(e.carbon>1){
+    h += `<h2 class="sect">Carbon detail</h2><div class="card" style="margin:0">
+      ${kv("CO₂ emitted", Math.round(e.etsCo2).toLocaleString()+" t")}
+      ${kv("EU scope", pc(e.euScope)+(e.euScope===1?" — intra-EU":e.euScope===0.5?" — one leg in the EU":""))}
+      ${kv(T("ets","EU ETS"), "−"+money0(e.etsCost), "neg")}
+      ${kv(T("fueleu","FuelEU"), "−"+money0(e.feuCost), "neg")}
+    </div>`;
+  }
+  return h;
+}
+
+function sheetVoyage(day, shipId){
+  const e = S.log.find(x=>x.day===day && x.shipId===shipId); if(!e) return;
+  showSheet(`${esc(e.loadName)} → ${esc(e.dischName)}`,
+    `${dateFull(e.day)} · ${esc(e.shipName)}`,
+    `<div class="card" style="margin:0 0 12px;text-align:center;padding:14px">
+      <div class="xs mut2">TCE</div>
+      <div class="xl bb ${cls_pn(e.tce)}">${money(e.tce)}<span class="sm mut">/day</span></div>
+    </div>` + voyageBreakdown(e));
+}
+
+function sheetAllVoyages(){
+  showSheet("Voyage log", `${S.log.length} completed`,
+    S.log.map(e=>`<div class="card tap" style="margin-bottom:8px" onclick="sheetVoyage(${e.day},${e.shipId})">
+      <div class="between"><div class="grow trunc">
+        <div class="sm b trunc">${esc(e.loadName)} → ${esc(e.dischName)}</div>
+        <div class="xs mut2">${dateFull(e.day)} · ${esc(e.shipName)} · ${days1(e.days)}</div>
+      </div><div style="text-align:right">
+        <div class="b ${cls_pn(e.gvp)}">${money(e.gvp,e.gvp>0)}</div>
+        <div class="xs mut2 mono">${money(e.tce)}/d</div>
+      </div></div></div>`).join(""));
+}
+
+/* --- live estimate for a running voyage ---------------------------------- */
+function sheetEstimate(shipId){
+  const sh = S.ships.find(s=>s.id===shipId); if(!sh || !sh.voyage) return;
+  const v = sh.voyage, p = v.plan;
+  const fake = Object.assign({}, p, {
+    shipId: sh.id, cargo: v.fx.cargo, rate: v.fx.rate, qty: p.qty,
+    loadName: p.loadName, dischName: p.dischName,
+    bunkerMt: v.act.bunkerMt, bunkerCost: p.bunkerCost, portDA: p.daLoad+p.daDisch,
+    carbon: p.ets.cost+p.feu.cost, etsCo2: p.ets.co2, etsCost: p.ets.cost,
+    feuCost: p.feu.cost, euScope: p.euScope, emergency: v.act.emergency||0,
+  });
+  showSheet("Voyage estimate", `${esc(p.loadName)} → ${esc(p.dischName)} · ${days1(Math.max(0,p.days-v.elapsed))} to run`,
+    `<div class="card" style="margin:0 0 12px;text-align:center;padding:14px">
+      <div class="xs mut2">Projected ${T("tce","TCE")}</div>
+      <div class="xl bb ${cls_pn(p.tce)}">${money(p.tce)}<span class="sm mut">/day</span></div>
+    </div>` + voyageBreakdown(fake));
+}
+
+/* --- bunkering ----------------------------------------------------------- */
+function sheetBunker(shipId){
+  const sh = S.ships.find(s=>s.id===shipId); if(!sh) return;
+  renderBunker(sh, null);
+}
+let bunkerLift = {};
+function renderBunker(sh, grade){
+  const cls = shipCls(sh), port = PORTS[sh.port];
+  const avail = Object.keys(CFG.FUEL).filter(g =>
+    bunkerPrice(port, g, MKT) !== null && (g !== "hsfo" || sh.scrubber));
+  if(!avail.length){
+    showSheet("Bunkers", esc(port.name),
+      `<div class="empty"><div class="big">⛽</div><div class="b">No bunkers available here</div>
+       <div class="sm mut2" style="margin-top:6px">${esc(port.name)} is not a bunkering port. Plan a call somewhere that is, or you will pay a hurry premium at sea.</div></div>`);
+    return;
+  }
+  const g = grade || (sh.scrubber && avail.includes("hsfo") ? "hsfo" : avail.includes("vlsfo") ? "vlsfo" : avail[0]);
+  const px = bunkerPrice(port, g, MKT);
+  const space = cls.fuelCap - robTot(sh);
+  const key = sh.id+g;
+  const lift = clamp(bunkerLift[key] ?? Math.min(space, cls.fuelCap*0.45), 0, space);
+  const cost = lift*px;
+
+  // Where else could she lift this grade, and at what?
+  const others = Object.entries(PORTS)
+    .map(([id,p])=>({ id, p, px: bunkerPrice(p, g, MKT) }))
+    .filter(x=>x.px !== null && x.id !== sh.port)
+    .sort((a,b)=>a.px-b.px).slice(0,4);
+
+  let h = `<div class="seg">${avail.map(x=>
+    `<button aria-selected="${x===g}" onclick="renderBunker(S.ships.find(s=>s.id===${sh.id}),'${x}')">${CFG.FUEL[x].name}</button>`).join("")}</div>`;
+
+  h += `<div class="card" style="margin:0 0 12px">
+    ${kv("Price here", "$"+px+"/mt")}
+    ${kv("On board", Math.round(robTot(sh)).toLocaleString()+" mt of "+cls.fuelCap.toLocaleString()+" mt")}
+    ${kv("Space", Math.round(space).toLocaleString()+" mt")}
+  </div>`;
+
+  h += `<h2 class="sect" style="margin-top:0">Lift</h2><div class="card" style="margin:0">
+    <div class="between"><div class="b mono">${Math.round(lift).toLocaleString()} mt</div>
+      <div class="b ${cost>S.cash?"neg":""}">${money0(cost)}</div></div>
+    <input type="range" min="0" max="${Math.max(1,Math.floor(space))}" step="10" value="${Math.floor(lift)}"
+      oninput="bunkerLift['${key}']=+this.value;renderBunker(S.ships.find(s=>s.id===${sh.id}),'${g}')">
+    <div class="row xs mut2"><span>0</span><span style="margin-left:auto">${Math.round(space).toLocaleString()} mt full</span></div>
+  </div>`;
+
+  h += `<h2 class="sect">Cheapest ${CFG.FUEL[g].name} elsewhere</h2><div class="card" style="margin:0">
+    ${others.map(o=>kv(esc(o.p.name), "$"+o.px+"/mt", o.px<px?"pos":"")).join("")}
+    <div class="xs mut2" style="margin-top:7px">Lifting where fuel is cheap and running through where it is dear is worth real money over a year. ${T("bunkers","Bunkers")} are the biggest voyage cost you actually control.</div>
+  </div>`;
+
+  showSheet("Bunkering", `${esc(sh.name)} · ${esc(port.name)}`, h,
+    `<button class="btn pri" ${cost>S.cash||lift<1?"disabled":""} onclick="doBunker(${sh.id},'${g}',${Math.floor(lift)},${px})">Lift ${Math.round(lift).toLocaleString()} mt for ${money(cost)}</button>`);
+}
+function doBunker(shipId, g, mt, px){
+  const sh = S.ships.find(s=>s.id===shipId); if(!sh || mt<1) return;
+  const cost = mt*px;
+  if(cost > S.cash){ toast("Not enough cash.", "bad"); return; }
+  // Weighted-average the cost of what is already aboard with the new stem.
+  const had = sh.rob[g] || 0, hadPx = sh.robCost[g] || px;
+  sh.rob[g] = had + mt;
+  sh.robCost[g] = (had*hadPx + mt*px) / (had+mt);
+  S.cash -= cost; S.ledger.bunkers += cost;
+  hideSheet();
+  toast(`Lifted ${mt.toLocaleString()} mt ${CFG.FUEL[g].name} at $${px}/mt`, "good");
+  dirty();
+}
+
+/* ==========================================================================
+   MARKET
+   ========================================================================= */
+function vMarket(){
+  if(!has("market")) return lockView("📈", "Market data",
+    `The freight indices, bunker prices by port and asset values open up once you have ${CFG.UNLOCK.market} voyages behind you — by then the question "is this a good rate?" actually means something.`,
+    CFG.UNLOCK.market);
+
+  let h = `<h2 class="sect" style="margin-top:0">Freight indices</h2>`;
+  h += `<div class="card" style="margin-bottom:10px">
+    <div class="xs mut" style="margin-bottom:2px">${T("index","100 is mid-cycle")}. The segments correlate but do not move together — Capesize turns first.</div>
+  </div>`;
+  for(const k of Object.keys(INDEX_META)) h += indexCard(k);
+
+  h += `<h2 class="sect">Bunker prices</h2>`;
+  const grades = ["vlsfo","mgo"];
+  const rows = Object.entries(PORTS)
+    .filter(([id,p])=>p.bunker && p.bunker.vlsfo !== undefined)
+    .map(([id,p])=>({ id, p, v:bunkerPrice(p,"vlsfo",MKT), m:bunkerPrice(p,"mgo",MKT) }))
+    .sort((a,b)=>a.v-b.v);
+  h += `<div class="card"><div class="kv"><span class="k xs">Port</span>
+      <span class="v xs mut">VLSFO / MGO $/mt</span></div>
+    ${rows.slice(0,10).map(r=>kv(esc(r.p.name), `${r.v} / ${r.m}`)).join("")}
+    <div class="xs mut2" style="margin-top:7px">Ten cheapest of ${rows.length} bunkering ports. Singapore, Rotterdam and Fujairah are cheap for a reason: volume.</div>
+  </div>`;
+  return h;
+}
+
+function indexCard(k){
+  const m = INDEX_META[k], v = S.mkt.idx[k], hist = S.mkt.hist[k] || [];
+  const prev = hist.length>6 ? hist[hist.length-7] : v;
+  const chg = v - prev;
+  const band = v<70?"Weak":v<95?"Soft":v<115?"Mid-cycle":v<150?"Firm":"Strong";
+  const bcls = v<70?"neg":v<95?"haz":v<115?"":"pos";
+  return `<div class="card tap" onclick="sheetIndex('${k}')">
+    <div class="between">
+      <div><div class="b">${m.name}</div>
+        <div class="xs mut2">${band} market</div></div>
+      <div style="text-align:right">
+        <div class="lg b ${bcls}">${v.toFixed(1)}</div>
+        <div class="xs ${cls_pn(chg)}">${chg>=0?"+":""}${chg.toFixed(1)} / 30d</div>
+      </div></div>
+    ${sparkline(hist)}
+  </div>`;
+}
+
+function sparkline(hist){
+  if(hist.length<3) return "";
+  const w=100, hh=38, lo=Math.min(...hist), hi=Math.max(...hist), rg=Math.max(hi-lo,1);
+  const pts = hist.map((v,i)=>`${(i/(hist.length-1)*w).toFixed(2)},${(hh-(v-lo)/rg*hh).toFixed(2)}`).join(" ");
+  return `<svg class="spark" viewBox="0 0 ${w} ${hh}" preserveAspectRatio="none" style="margin-top:8px">
+    <polyline points="${pts}" fill="none" stroke="var(--acc)" stroke-width="1.4" vector-effect="non-scaling-stroke"/>
+  </svg>`;
+}
+
+function sheetIndex(k){
+  const m = INDEX_META[k], hist = S.mkt.hist[k]||[], v = S.mkt.idx[k];
+  const lo = hist.length?Math.min(...hist):v, hi = hist.length?Math.max(...hist):v;
+  showSheet(m.name, `Index ${v.toFixed(1)} · ${hist.length*CFG.MKT.histEvery} days of history`,
+    `<div class="card" style="margin:0 0 12px">${chart(hist)}</div>
+     <div class="card" style="margin:0">
+      ${kv("Now", v.toFixed(1))}
+      ${kv("Period high", hi.toFixed(1))}
+      ${kv("Period low", lo.toFixed(1))}
+      ${kv("Mid-cycle", "100.0")}
+     </div>
+     <div class="card" style="margin-top:12px">
+      <div class="sm mut">Freight rates are cyclical, and the cycle is long — roughly four to five years peak to peak. Fixing a ship on a long time charter near the top and staying spot near the bottom is the whole game. Rates on this index feed straight through to every ${m.short} cargo on the board.</div>
+     </div>`);
+}
+
+function chart(hist){
+  if(hist.length<3) return `<div class="mut sm">Not enough history yet.</div>`;
+  const w=300, h=150, pad=18;
+  const lo=Math.min(...hist,60), hi=Math.max(...hist,140), rg=Math.max(hi-lo,1);
+  const x=i=>pad+(i/(hist.length-1))*(w-pad-4);
+  const y=v=>h-pad-((v-lo)/rg)*(h-pad-8);
+  const pts=hist.map((v,i)=>`${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+  let g="";
+  for(const gv of [50,100,150,200]){ if(gv<lo||gv>hi) continue;
+    g+=`<line class="gl" x1="${pad}" y1="${y(gv)}" x2="${w-4}" y2="${y(gv)}"/>
+        <text class="ax" x="0" y="${y(gv)+3}">${gv}</text>`; }
+  return `<svg class="chart" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">${g}
+    <line class="gl" x1="${pad}" y1="${y(100)}" x2="${w-4}" y2="${y(100)}" stroke-dasharray="3 3"/>
+    <polyline points="${pts}" fill="none" stroke="var(--acc)" stroke-width="1.6" vector-effect="non-scaling-stroke"/>
+  </svg>`;
+}
+
+function lockView(icon, title, body, n){
+  return `<div class="lock"><div class="big">${icon}</div>
+    <div class="t">${title}</div>
+    <div class="sm" style="max-width:290px;margin:0 auto">${body}</div>
+    <div class="pill" style="margin-top:14px">${S.voyagesDone} / ${n} voyages</div></div>`;
+}
+
+/* ==========================================================================
+   YARD — Phase 3
+   ========================================================================= */
+function vYard(){
+  return `<div class="lock"><div class="big">🏗</div>
+    <div class="t">S&amp;P and Shipyard</div>
+    <div class="sm" style="max-width:300px;margin:0 auto">Buying, selling, ordering and scrapping tonnage arrives in Phase 3, together with the debt and covenant system. Asset values already move with the cycle underneath — a Handysize is worth ${money(assetValue("handysize",22,MKT))} today against ${money(assetValue("handysize",22,{idx:{handy:{v:100}}}))} at mid-cycle.</div>
+  </div>`;
+}
+
+/* ==========================================================================
+   COMPANY
+   ========================================================================= */
+function vCompany(){
+  const L = S.ledger;
+  const debt = S.ships.reduce((a,s)=>a+(s.debt?s.debt.principal:0),0);
+  const assets = S.ships.reduce((a,s)=>a+assetValue(s.cls, shipAge(s), MKT),0);
+  const eq = S.cash + assets - debt;
+  const fleetDays = S.ships.reduce((a,s)=>a+s.lifeDays,0);
+  const fleetGvp  = S.ships.reduce((a,s)=>a+s.lifeGvp,0);
+
+  let h = `<h2 class="sect" style="margin-top:0">Position</h2><div class="card">
+    ${kv("Cash", money(S.cash), cls_pn(S.cash))}
+    ${kv("Fleet market value", money(assets))}
+    ${kv("Debt outstanding", "−"+money(debt), "neg")}
+    ${kvt("Net equity", money(eq), cls_pn(eq))}
+  </div>`;
+
+  h += `<h2 class="sect">Profit &amp; loss — to date</h2><div class="card">
+    ${kv("Net freight earned", money(L.freight))}
+    ${Math.abs(L.demurrage)>100?kv(T("demurrage","Demurrage")+" net", money(L.demurrage, L.demurrage>0), cls_pn(L.demurrage)):""}
+    ${kv(T("bunkers","Bunkers"), "−"+money(L.bunkers), "neg")}
+    ${kv(T("da","Port disbursements"), "−"+money(L.portDA), "neg")}
+    ${L.carbon>1?kv("Carbon", "−"+money(L.carbon), "neg"):""}
+    ${kv(T("opex","OPEX"), "−"+money(L.opex), "neg")}
+    ${kv("Interest", "−"+money(L.interest), "neg")}
+    ${kvt("Result before principal", money(L.freight+L.demurrage-L.bunkers-L.portDA-L.carbon-L.opex-L.interest),
+        cls_pn(L.freight+L.demurrage-L.bunkers-L.portDA-L.carbon-L.opex-L.interest))}
+    ${kv("Principal repaid", "−"+money(L.principal), "mut")}
+  </div>`;
+
+  h += `<h2 class="sect">Fleet KPIs</h2><div class="card">
+    ${kv("Vessels", S.ships.length)}
+    ${kv("Voyages completed", S.voyagesDone)}
+    ${kv("Utilisation", pc(utilisation()))}
+    ${fleetDays>0?kv("Fleet "+T("tce","TCE"), money(fleetGvp/fleetDays)+"/day"):""}
+    ${kv("Average OPEX", money0(S.ships.reduce((a,s)=>a+opexDay(shipCls(s),shipAge(s)),0)/Math.max(1,S.ships.length))+"/day")}
+  </div>`;
+
+  if(S.daily.length>4){
+    h += `<h2 class="sect">Cash</h2><div class="card">${cashChart()}</div>`;
+  }
+
+  h += `<h2 class="sect">Reference</h2>
+    <button class="btn" style="margin-bottom:8px" onclick="sheetGlossary()">Glossary — ${Object.keys(GLOSSARY).length} terms</button>
+    <button class="btn" style="margin-bottom:8px" onclick="sheetSettings()">Settings &amp; save</button>`;
+
+  h += `<div style="text-align:center;margin:22px 0 6px">
+    <span id="ver">Kription v${CFG.VERSION}${S.debug?" · debug":""}</span></div>`;
+  return h;
+}
+
+function cashChart(){
+  const d = S.daily.slice(-180);
+  if(d.length<4) return "";
+  const w=300, h=110, pad=20;
+  const vals=d.map(x=>x.cash);
+  const lo=Math.min(...vals,0), hi=Math.max(...vals), rg=Math.max(hi-lo,1);
+  const x=i=>pad+(i/(d.length-1))*(w-pad-4);
+  const y=v=>h-14-((v-lo)/rg)*(h-24);
+  const pts=d.map((p,i)=>`${x(i).toFixed(1)},${y(p.cash).toFixed(1)}`).join(" ");
+  const last=vals[vals.length-1];
+  return `<svg class="chart" style="height:110px" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+    ${lo<0?`<line class="gl" x1="${pad}" y1="${y(0)}" x2="${w-4}" y2="${y(0)}" stroke="var(--neg)" stroke-dasharray="3 3"/>`:""}
+    <polyline points="${pts}" fill="none" stroke="${last>=0?"var(--pos)":"var(--neg)"}" stroke-width="1.6" vector-effect="non-scaling-stroke"/>
+    <text class="ax" x="0" y="12">${money(hi)}</text>
+    <text class="ax" x="0" y="${h-2}">${money(lo)}</text>
+  </svg><div class="xs mut2">Last ${d.length} days</div>`;
+}
+
+function sheetGlossary(){
+  const keys = Object.keys(GLOSSARY).sort((a,b)=>GLOSSARY[a][0].localeCompare(GLOSSARY[b][0]));
+  showSheet("Glossary", "Every term the game uses, in plain language",
+    keys.map(k=>`<div class="card" style="margin-bottom:8px;padding:11px 13px">
+      <div class="b sm">${esc(GLOSSARY[k][0])}</div>
+      <div class="sm mut" style="margin-top:3px">${esc(GLOSSARY[k][1])}</div></div>`).join(""));
+}
+
+function sheetSettings(){
+  showSheet("Settings", "Phase 1 build",
+    `<h2 class="sect" style="margin-top:0">Save</h2><div class="card" style="margin:0">
+      <div class="sm mut" style="margin-bottom:10px">${hasStorage
+        ? "Autosaves every 10 seconds and when you leave the tab."
+        : '<span class="haz">Browser storage is unavailable, so this run lives in memory only. Export it if you want to keep it.</span>'}</div>
+      <button class="btn sm" style="width:100%;margin-bottom:8px" onclick="doExport()">Export save as JSON</button>
+      <button class="btn sm" style="width:100%" onclick="doImport()">Import save</button>
+    </div>
+    <h2 class="sect">Offline</h2><div class="card" style="margin:0">
+      <div class="sm mut">While the tab is closed, ships finish the voyage they are on and then wait — the game never fixes cargo on your behalf. Elapsed time is capped at ${CFG.OFFLINE_CAP_DAYS} days so running costs cannot spiral while you are away.</div>
+    </div>
+    <h2 class="sect">Danger</h2><div class="card" style="margin:0">
+      <button class="btn dang sm" style="width:100%" onclick="if(confirm('Delete this run and start over?'))hardReset()">Reset run</button>
+    </div>`);
+}
+
+/* --- export / import ------------------------------------------------------ */
+function doExport(){
+  const blob = new Blob([serialise()], { type:"application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `kription-${dateFull(S.day).replace(/ /g,"-")}.json`;
+  a.click(); setTimeout(()=>URL.revokeObjectURL(a.href), 2000);
+  toast("Save exported.", "good");
+}
+function doImport(){
+  const inp = document.createElement("input");
+  inp.type = "file"; inp.accept = "application/json,.json";
+  inp.onchange = ()=>{
+    const f = inp.files && inp.files[0]; if(!f) return;
+    const r = new FileReader();
+    r.onload = ()=>{
+      try { load(String(r.result)); hideSheet(); save(); dirty();
+            toast("Save imported.", "good"); }
+      catch(e){ toast("That file is not a Kription save.", "bad"); }
+    };
+    r.readAsText(f);
+  };
+  inp.click();
+}
+function hardReset(){
+  try { localStorage.removeItem(CFG.SAVE_KEY); } catch(e){}
+  hideSheet(); newGame(); dirty();
+}
+
+/* ==========================================================================
+   UNLOCKS — layer the systems in, and say why each one now matters
+   ========================================================================= */
+function onUnlockCheck(){
+  const n = S.voyagesDone;
+  if(n >= CFG.UNLOCK.bunkers)
+    coach("u_bunkers", "Bunkers are yours to buy", "Fuel is the biggest voyage cost you actually control. Prices differ by hundreds of dollars a tonne between ports — lift where it is cheap. There is a <b>Bunker</b> button on each idle ship.");
+  if(n >= CFG.UNLOCK.ballast)
+    coach("u_ballast", "Watch the empty leg", "Getting to the cargo costs fuel and days and earns nothing. A fixture card now shows its ballast leg, and tells you how much cargo is on offer where the voyage ends. Discharging into a dead-end port is how a good rate becomes a bad quarter.");
+  if(n >= CFG.UNLOCK.eca)
+    coach("u_eca", "Emission control areas", "Inside an ECA — the North Sea, Baltic, North America, Caribbean and Mediterranean — you must burn 0.1% sulphur MGO, which is roughly a third dearer than VLSFO. Short Baltic trades burn it the whole way, which is why they look expensive per tonne.");
+  if(n >= CFG.UNLOCK.speed)
+    coach("u_speed", "Now choose your speed", "Consumption rises with roughly the cube of speed, so dropping two knots can cut daily burn by a third — at the cost of days. Which way is right depends on the freight rate and the bunker price, and it changes. Every fixture now has a speed slider.");
+  if(n >= CFG.UNLOCK.market)
+    coach("u_market", "The market has a shape", "The Market tab is open. Freight rates run in cycles of four to five years, and the segments do not move together. Knowing where you are in the cycle is what separates an owner from an operator.");
+  if(n >= CFG.UNLOCK.demurrage)
+    coach("u_dem", "Laytime and demurrage", "Charter parties allow a fixed time for cargo work. Beat it and the charterer pays you demurrage; run over and you hand back despatch. It is now itemised on every fixture and result.");
+}
+
+/* ##########################################################################
+   §BOOT
+   ######################################################################### */
+
+/* --- input --------------------------------------------------------------- */
+$("tabs").addEventListener("click", (ev)=>{
+  const b = ev.target.closest("button[data-tab]"); if(!b) return;
+  S.tab = b.dataset.tab; dirty();
+});
+$("scrim").addEventListener("click", hideSheet);
+$("sheet").querySelector(".grab").addEventListener("click", hideSheet);
+
+$("clockbtn").addEventListener("click", ()=>{
+  if(S.paused){ S.paused = false; }
+  else {
+    const i = CFG.SPEEDS.indexOf(S.speed);
+    if(i === CFG.SPEEDS.length-1){ S.paused = true; S.speed = CFG.SPEEDS[0]; }
+    else S.speed = CFG.SPEEDS[i+1];
+  }
+  dirty();
+});
+
+// glossary term taps (delegated — terms are rendered all over the place)
+document.addEventListener("click", (ev)=>{
+  const t = ev.target.closest(".term"); if(!t) return;
+  ev.stopPropagation();
+  const g = GLOSSARY[t.dataset.t]; if(!g) return;
+  markSeen(t.dataset.t);
+  toast(`<b>${esc(g[0])}</b><br><span class="mut">${esc(g[1])}</span>`);
+});
+
+// long-press the version number for the debug panel
+(function(){
+  let timer = null;
+  const start = (ev)=>{
+    const v = ev.target.closest("#ver"); if(!v) return;
+    timer = setTimeout(()=>{ timer=null; sheetDebug(); }, 650);
+  };
+  const stop = ()=>{ if(timer){ clearTimeout(timer); timer=null; } };
+  document.addEventListener("pointerdown", start);
+  document.addEventListener("pointerup", stop);
+  document.addEventListener("pointercancel", stop);
+  document.addEventListener("pointermove", stop);
+})();
+
+function sheetDebug(){
+  S.debug = true;
+  const clsOpts = Object.entries(CLASSES).map(([id,c])=>
+    `<option value="${id}">${c.name} — ${c.dwt.toLocaleString()} dwt</option>`).join("");
+  showSheet("Debug", "Everything unlocked while this is on",
+    `<div class="card" style="margin:0 0 10px">
+      ${kv("Day", Math.round(S.day)+" — "+dateFull(S.day))}
+      ${kv("Seed", S.seed)}
+      ${kv("Indices", Object.entries(S.mkt.idx).map(([k,v])=>k+" "+v.toFixed(0)).join("  "))}
+      ${kv("Oil factor", MKT.oil.toFixed(3))}
+    </div>
+    <h2 class="sect" style="margin-top:0">Cash</h2><div class="card" style="margin:0">
+      <div class="row" style="gap:6px">
+        <button class="btn sm" onclick="S.cash+=1e6;dirty()">+$1M</button>
+        <button class="btn sm" onclick="S.cash+=1e7;dirty()">+$10M</button>
+        <button class="btn sm" onclick="S.cash+=1e8;dirty()">+$100M</button>
+      </div></div>
+    <h2 class="sect">Time</h2><div class="card" style="margin:0">
+      <div class="row" style="gap:6px">
+        <button class="btn sm" onclick="simDays(30);snapshotMarket();dirty()">+30d</button>
+        <button class="btn sm" onclick="simDays(180);snapshotMarket();dirty()">+180d</button>
+        <button class="btn sm" onclick="simDays(365);snapshotMarket();dirty()">+1yr</button>
+      </div></div>
+    <h2 class="sect">Market</h2><div class="card" style="margin:0">
+      <div class="row" style="gap:6px;margin-bottom:8px">
+        <button class="btn sm" onclick="forceMkt(45)">Bust 45</button>
+        <button class="btn sm" onclick="forceMkt(100)">Mid 100</button>
+        <button class="btn sm" onclick="forceMkt(210)">Boom 210</button>
+      </div>
+      <div class="xs mut2">Sets every index and resets the cycle phase to match.</div>
+    </div>
+    <h2 class="sect">Spawn vessel</h2><div class="card" style="margin:0">
+      <select id="dbg-cls" style="width:100%;min-height:40px;background:var(--surf2);color:var(--txt);
+        border:1px solid var(--line2);border-radius:9px;padding:0 10px;margin-bottom:8px">${clsOpts}</select>
+      <button class="btn sm" style="width:100%" onclick="dbgSpawn()">Spawn debt-free at Rotterdam</button>
+    </div>
+    <h2 class="sect">Progress</h2><div class="card" style="margin:0">
+      <button class="btn sm" style="width:100%;margin-bottom:8px" onclick="S.voyagesDone+=5;onUnlockCheck();dirty()">+5 voyages counted (unlocks)</button>
+      <button class="btn sm" style="width:100%" onclick="S.debug=false;hideSheet();dirty()">Turn debug off</button>
+    </div>`);
+}
+function forceMkt(v){
+  for(const k of Object.keys(MKT.idx)){
+    const s = MKT.idx[k];
+    s.v = v; s.noise = 0;
+    // put the cycle phase where it would need to be to produce this level
+    const want = clamp((v/100 - 1)/CFG.MKT.amp, -1, 1);
+    s.phase = Math.asin(want);
+  }
+  snapshotMarket(); dirty(); toast("Market forced to "+v, "warn");
+}
+function dbgSpawn(){
+  const id = $("dbg-cls").value;
+  const sh = mkShip(S, id, CLASSES[id].name.split(" ")[0]+" "+(S.nextId), 2020, "rotterdam");
+  S.ships.push(sh); hideSheet(); dirty();
+  toast("Spawned "+CLASSES[id].name, "good");
+}
+
+/* --- main loop ----------------------------------------------------------- */
+let lastT = 0, acc = 0;
+function frame(t){
+  if(!lastT) lastT = t;
+  const dtMs = Math.min(t - lastT, 250);   // a backgrounded tab must not lurch
+  lastT = t;
+
+  if(!S.paused && !S.bust){
+    acc += dtMs;
+    const step = 40;                        // sim at 25 Hz, render on demand
+    while(acc >= step){
+      simDays((step/1000)/CFG.SEC_PER_DAY * S.speed, false);
+      acc -= step;
+    }
+  }
+
+  // The top bar is cheap and always live; the screen only redraws when dirty.
+  renderTop();
+  if(_dirty || !sheetOpen && S.tab === "fleet"){
+    if(_dirty){ snapshotMarket(); render(); _dirty = false; }
+    else updateFleetProgress();
+  }
+  requestAnimationFrame(frame);
+}
+
+/* Cheap in-place progress update so the Fleet tab animates without a full
+   re-render — a 40-ship fleet is 40 style writes, not 40 DOM rebuilds. */
+function updateFleetProgress(){
+  const cards = $("screen").querySelectorAll(".card .bar.pos > i");
+  let i = 0;
+  for(const sh of S.ships){
+    if(!sh.voyage) continue;
+    const el = cards[i++]; if(!el) break;
+    el.style.width = pc(clamp(sh.voyage.elapsed/sh.voyage.plan.days, 0, 1));
+  }
+}
+
+/* --- persistence hooks --------------------------------------------------- */
+setInterval(()=>{ if(!S.bust) save(); }, CFG.AUTOSAVE_MS);
+// Non-Fleet tabs hold live numbers (board, indices, P&L) but don't animate;
+// a slow repaint keeps them current without rebuilding the DOM every frame.
+setInterval(()=>{ if(!S.paused && !sheetOpen && S.tab !== "fleet") dirty(); }, 700);
+window.addEventListener("pagehide", save);
+window.addEventListener("visibilitychange", ()=>{ if(document.hidden) save(); });
+
+/* --- start --------------------------------------------------------------- */
+(function boot(){
+  // storage probe
+  try { localStorage.setItem("__k","1"); localStorage.removeItem("__k"); }
+  catch(e){ hasStorage = false; }
+
+  const resumed = tryLoad();
+  if(!resumed) newGame();
+
+  let off = null;
+  if(resumed) off = applyOffline();
+
+  snapshotMarket();
+  render();
+  requestAnimationFrame(frame);
+
+  if(off && off.completed >= 0 && off.days >= 0.5) sheetAway(off);
+  else if(!resumed){
+    coach("welcome", "One ship, and a mortgage",
+      `You own <b>${esc(S.ships[0].name)}</b> — a ${shipAge(S.ships[0])}-year-old Handysize bulker lying at Riga, and ${money(S.cash)} in the bank. Running costs are charged every day whether she is working or not. Find her a cargo.`);
+  }
+  if(!hasStorage) showBanner("Browser storage unavailable — this session is memory-only. Use Export Save in Company to keep your run.");
+})();
+
+function sheetAway(off){
+  const rows = off.voyages.length
+    ? off.voyages.map(e=>`<div class="card" style="margin-bottom:8px;padding:11px 13px">
+        <div class="between"><div class="grow trunc">
+          <div class="sm b trunc">${esc(e.loadName)} → ${esc(e.dischName)}</div>
+          <div class="xs mut2">${esc(e.shipName)} · ${days1(e.days)}</div>
+        </div><div style="text-align:right">
+          <div class="b ${cls_pn(e.gvp)}">${money(e.gvp,e.gvp>0)}</div>
+          <div class="xs mut2 mono">${money(e.tce)}/d</div>
+        </div></div></div>`).join("")
+    : `<div class="mut sm">No voyages completed — nothing was due to finish.</div>`;
+
+  const idle = S.ships.filter(s=>s.status==="idle").length;
+  showSheet("While you were away",
+    `${days1(off.days)} elapsed${off.capped?` — capped from ${days1(off.wantedDays)}`:""}`,
+    `<div class="card" style="margin:0 0 12px;text-align:center;padding:14px">
+      <div class="xs mut2">Cash movement</div>
+      <div class="xl bb ${cls_pn(off.cashDelta)}">${money(off.cashDelta, off.cashDelta>0)}</div>
+      <div class="sm mut">after running costs and debt service</div>
+    </div>
+    <h2 class="sect" style="margin-top:0">Voyages completed</h2>${rows}
+    ${idle?`<div class="card" style="margin-top:12px">
+      <div class="sm">${idle} ship${idle===1?" is":"s are"} now idle and earning nothing. The game never fixes cargo for you — that decision is always yours.</div></div>`:""}`,
+    `<button class="btn pri" onclick="hideSheet()">Continue</button>`);
+}
+</script>
+</body>
+</html>

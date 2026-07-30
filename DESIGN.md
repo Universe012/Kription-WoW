@@ -602,3 +602,84 @@ penalty formula, commission structure, survey intervals, ECA boundaries.
 ---
 
 *Awaiting approval before implementation. Nothing is built yet.*
+
+---
+
+## Appendix A — Phase 1 as built
+
+Phase 1 ships in `index.html`: one self-contained file, no build step, no
+dependencies, ~137 KB (42 KB gzipped). Engine, Fleet and Charter tabs, dry bulk
+spot voyages over a real sea-routing graph, TCE, the tutorial, save/offline.
+Market opens at voyage 8; Yard and the full Company P&L follow in Phase 3.
+
+### Where the shipped model differs from §2.2
+
+The doc's worked example was computed by hand. The game computes port time from
+each terminal's actual productivity, so the numbers moved:
+
+| | Doc §2.2 | As built | Why |
+|---|---:|---:|---|
+| Cargo | 26,000 mt | 27,099 mt | Intake solved from deadweight less bunkers/constants, not assumed |
+| Freight | $11.00/mt | $11.14/mt | Index opens at 112, plus per-fixture dispersion |
+| Voyage days | 9.35 | 10.83 | Riga 11,400 mt/day load, Ghent 8,000 discharge, +0.5d per call for berthing and documents |
+| **Gross voyage profit** | **$137,512** | **$137,017** | — |
+| **TCE** | **$14,707/d** | **$12,649/d** | Entirely the 1.5 extra days of port time |
+| Port disbursements | $62,000 | $62,000 | Exact — a Handysize is the 20,000 GT reference size |
+| Carbon | $17,323 | $26,654 | The doc priced ETS at the 2025 70% phase-in; the game is set in 2026 at 100% |
+
+The TCE move is the honest one: **$12,649 is a better number than $14,707**,
+because it sits on the Handysize mid-cycle benchmark rather than above it, and it
+comes out of terminal rates rather than an assumption. It also confirms port
+handling rates as the most load-bearing uncertain input in the model (§8, item 3)
+— 1.5 days moved TCE by 14%.
+
+At 5 real seconds per game day the opening voyage runs **54 seconds**.
+
+### Calibration achieved
+
+Freight rates were solved, not guessed: for each of the 53 routes the game
+inverts the voyage P&L to find the $/mt that yields the segment's benchmark
+round-voyage TCE at index 100, biased slightly by port liquidity so awkward
+geography clears above the benchmark. Result at index 100:
+
+| Segment | n | Min | Median | Max | Doc target |
+|---|---:|---:|---:|---:|---:|
+| Handy / Supramax | 43 | $10,495 | **$12,090** | $13,040 | $12,000 |
+| Panamax / Kamsarmax | 6 | $14,228 | **$15,010** | $16,058 | $15,000 |
+| Capesize | 4 | $21,648 | **$22,241** | $22,396 | $22,000 |
+
+Rates arbitraging to near-equal TCE across routes is not a flattening of the
+game — it is what an efficient freight market does. The player's edge comes from
+position, speed and cycle timing, not from finding a magically better trade.
+
+### Sea routing
+
+Dijkstra over a 31-waypoint graph; ports carry real distances to each gateway
+they can reach, so Suez-versus-Cape will fall out of the graph in Phase 5 rather
+than being scripted. Validated against 27 known port pairs:
+**5.1% distance-weighted mean absolute error.** The residual is concentrated in
+very short intra-basin legs where a hub network always overstates
+(Riga–Klaipeda 350 nm against ~250) — small in absolute terms and on no priced
+route. Long-haul accuracy is the part that matters and it is good:
+Tubarão–Qingdao +5%, Port Hedland–Qingdao +1%, Rotterdam–Singapore −2%,
+Newcastle–Chiba 0%.
+
+Four routing bugs were found and fixed by that validation, each of which would
+have quietly distorted the economics: Baltic ports routing out through the
+Skagerrak and back, Black Sea to Egypt detouring west past Sicily, Singapore to
+west India going round the Gulf of Oman, and no direct Caribbean–Brazil leg.
+
+### Cycle behaviour
+
+Over 1,325 simulated days the Handysize index travelled **39.2 to 183.4** — a
+genuine boom and bust inside a single long session, with the three segments
+correlated but not locked together.
+
+### Known Phase 1 limits
+
+- Insolvency stops the run rather than restructuring; the covenant, cure and
+  enforcement path arrives with the debt system in Phase 3.
+- Only spot voyage charter. Time charter, bareboat and COA are Phase 3.
+- Hull condition, surveys, PSC, CII and vetting are modelled as fields on the
+  vessel but not yet exercised — Phase 4.
+- Canal transits are not yet priced; no Phase 1 route uses one.
