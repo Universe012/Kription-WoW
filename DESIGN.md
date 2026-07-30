@@ -683,3 +683,134 @@ correlated but not locked together.
 - Hull condition, surveys, PSC, CII and vetting are modelled as fields on the
   vessel but not yet exercised — Phase 4.
 - Canal transits are not yet priced; no Phase 1 route uses one.
+
+---
+
+## Appendix B — Phases 2–6 as built
+
+`index.html` is now the complete game: **309 KB, 96 KB gzipped**, one file, no
+dependencies, no build step. Six phases in, all systems live and tested.
+
+### What each phase added
+
+**Phase 2 — operations.** Bunker planning with per-port price differentials and
+a hurry premium when tanks run dry; the speed/consumption trade with a solver
+that sweeps the whole curve rather than assuming an analytic optimum; ECA fuel
+switching computed from the fraction of each leg inside one; laytime, demurrage
+and despatch.
+
+**Phase 3 — employment and capital.** All four employment types: voyage charter,
+time charter (charterer pays voyage costs, hire stops on off-hire), bareboat
+(no OPEX at all), and COA with a real performance penalty. S&P board with a
+bid/ask spread, newbuild ordering on a 24–36 month lag with a 20% deposit,
+demolition priced per lightweight tonne. Mortgages with LTV and minimum-liquidity
+covenants, a 60-day cure period, and enforcement.
+
+**Phase 4 — class and compliance.** Intermediate and special surveys on the real
+5-year cycle, with deferral available once at a compounding cost. Port State
+Control with Poisson deficiencies and detention. Seven flags and seven class
+societies trading crew cost against inspection frequency and charterer
+acceptance. CII/AER on the IMO reference-line form with annual tightening.
+Oil-major vetting gating tanker cargoes. Tankers on Worldscale.
+
+**Phase 5 — the world.** Canal tolls on regressive tonnage tiers with Panama
+drought restrictions and Suez draft limits; the Cape alternative as a first-class
+choice. Seasonal weather by basin, Baltic ice, the Northern Sea Route open
+July–November to ice-classed tonnage. War risk premiums with armed guards. Twelve
+decision events. FFAs and bunker swaps. Gas, car carriers, reefers, project
+cargo, offshore support and live fish carriers.
+
+**Phase 6 — liner.** Services, strings, rotations, and the string-size/speed
+trade; headhaul/backhaul imbalance and the empty repositioning it forces;
+terminal handling; schedule reliability with buffer ships; BCO contract cover
+against spot.
+
+### Calibration, all solved rather than guessed
+
+Every segment's rates were found by inverting the voyage P&L for the benchmark
+round-voyage TCE at mid-cycle, then verified:
+
+| Segment | n routes | Median TCE at index 100 | Target |
+|---|---:|---:|---:|
+| Handy / Supramax | 43 | $12,090 | $12,000 |
+| Panamax / Kamsarmax | 6 | $15,010 | $15,000 |
+| Capesize | 4 | $22,241 | $22,000 |
+| MR / LR1 product | 8 | $25,063 | $25,000 |
+| Suezmax | 6 | $38,104 | $38,000 |
+| VLCC | 5 | $42,321 | $45,000 |
+| LNG carrier | 7 | $82,882 | $80,000 |
+| VLGC | 3 | $44,055 | $45,000 |
+| PCTC | 6 | $48,880 | $52,000 |
+| Reefer | 5 | $19,991 | $21,000 |
+| Heavy-lift | 5 | $24,050 | $26,000 |
+
+Liner lanes were solved the same way, to EBIT per ship-year: **$9.5M deep-sea,
+$3.5M regional**, at a 12–26% margin and $1,111/TEU all-in cost against a real
+$1,100–1,400. The Asia–North Europe string table:
+
+| Service speed | Round voyage | Ships for weekly | Burn/ship | **Fleet burn** | EBIT/yr |
+|---:|---:|---:|---:|---:|---:|
+| 14 kn | 97.6 d | 14 | 57 mt/d | **794 mt/d** | $212M |
+| 16 kn | 88.6 d | 13 | 81 mt/d | **1,056 mt/d** | $185M |
+| 18 kn | 81.6 d | 12 | 113 mt/d | **1,352 mt/d** | $152M |
+| 20 kn | 76.0 d | 11 | 152 mt/d | **1,672 mt/d** | $114M |
+| 22 kn | 71.4 d | 11 | 200 mt/d | **2,200 mt/d** | $58M |
+
+Slowing the service needs more ships and burns far less fuel. The builder screen
+shows the arithmetic — `ceil(88.6 ÷ 7) + 1 buffer` — rather than hiding it.
+
+Canal tolls verified against headline transits: Suez Handysize $101,520,
+Capesize $468,000, VLCC $713,000, Neopanamax $840,000, ULCV $1.38M; Panama
+Kamsarmax $256,400 rising to $518,900 in a drought year. A laden VLCC at 22 m
+draft is excluded from Suez and routed round the Cape, as she is in life.
+
+Special survey costs were re-fitted to `k × GT^0.6` after linear-in-GT put a
+Neopanamax at $11M: now $1.10M Handysize, $2.74M Capesize, $3.81M VLCC.
+
+Sea routing validated against 27 known port pairs at **5.1% distance-weighted
+mean absolute error**.
+
+### Bugs the calibration and playtesting caught
+
+Each of these would have silently distorted the economics:
+
+1. Baltic ports routing out through the Skagerrak and back (Riga–Klaipeda
+   1,120 nm against ~250).
+2. Black Sea to Egypt detouring 1,300 nm west past Sicily.
+3. Singapore to west India routing round the Gulf of Oman (4,160 vs ~2,400).
+4. No direct Caribbean–Brazil leg (Houston–Santos 9,120 vs ~6,000).
+5. The Northern Sea Route open year-round to any ship, making every Asia–Europe
+   voyage 7,460 nm.
+6. `cargoIntake` dividing by `grainCubic`, which tankers do not have — every wet
+   fixture returned NaN tonnes.
+7. `newMarket` seeding only the three dry indices, so the eight new ones began
+   with `phase === undefined` and NaN-cascaded through hire, liner revenue and
+   finally cash.
+8. `burnFuel` ignoring the on-hire flag, so a ship on time charter paid for the
+   charterer's bunkers and posted negative TCE on voyages that earn hire.
+9. Port disbursements billed only on a phase *transition*, so a voyage starting
+   at the load port never raised the load-port bill.
+10. The ballast leg hidden before its unlock but still counted in the displayed
+    total — visible arithmetic that did not add up.
+11. Liner economics 5× too profitable, from omitting container equipment, inland
+    haulage, commission, admin and network overhead.
+12. Feeder services structurally loss-making, from charging the feeder operator
+    full terminal handling that in reality sits with the deep-sea principal.
+
+### Verified behaviour
+
+- Time charter: zero bunkers and zero port DA to our account, TCE exactly hire
+  less 3.75% commission, CII still accruing from the charterer's voyages.
+- Restructuring: 19 ships to 1, debt released, rating D, run continues.
+- Save/load round-trips with a live fleet, services, COAs and open derivatives.
+- Eleven indices stay finite over 1,000 days and decorrelate properly — in one
+  run containers reached 143 while crude sat at 37.
+- Tonnage tax vs profits tax resolves annually and reports which basis applied.
+
+### Still abstracted, deliberately
+
+Bareboat ships are not navigated (there is nothing to simulate — that is the
+point of a bareboat). Time-charter and COA ships run shadow voyages so position,
+wear and CII stay real while the charterer makes the routing decisions. Liner
+services accrue against a rotation model rather than tracking each box. The
+seven items flagged in §5 as too fiddly to be fun remain out.
