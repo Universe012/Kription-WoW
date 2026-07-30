@@ -1846,7 +1846,7 @@ function voyageEstimate(ship, fx, speed, mkt, opts){
   // Gas carriers burn their own boil-off, so much of the bill disappears.
   const fuelDiscount = cls.dualFuel === "lng" ? 0.55 : 1;
 
-  let bunkerCost = 0; const bunkerLines = [];
+  let bunkerCost = 0, stemCost = 0; const bunkerLines = [];
   for(const [g,mt] of Object.entries(fuel)){
     const have = Math.min(mt, (ship.rob && ship.rob[g]) || 0);
     const buy  = mt - have;
@@ -1855,6 +1855,7 @@ function voyageEstimate(ship, fx, speed, mkt, opts){
     const pxBuy  = pxHere ?? Math.round(CFG.FUEL[g].base*(mkt?mkt.oil:1)*(1+CFG.EMERGENCY_LIFT_PREMIUM)+120);
     const c = (have*pxHave + buy*pxBuy) * fuelDiscount;
     bunkerCost += c;
+    stemCost += buy*pxBuy*fuelDiscount;   // the part that is an actual purchase
     bunkerLines.push({ grade:g, mt, have, buy, px:Math.round(pxBuy), cost:c });
   }
 
@@ -1926,7 +1927,7 @@ function voyageEstimate(ship, fx, speed, mkt, opts){
     altNm:bal.altNm+lad.altNm, canals:Object.assign({}, bal.canals, lad.canals),
     blocked:lad.blocked, path:lad.path,
     gross, comm, net, hireMode, hireDays,
-    fuel, bunkerCost, bunkerLines, fuelDiscount,
+    fuel, bunkerCost, bunkerLines, fuelDiscount, stemCost,
     daLoad, daDisch, tolls, tollCost, warZones, warCost,
     ets, feu, euScope:scope,
     laytime, overrun, demRate, demurrage,
@@ -2330,9 +2331,12 @@ function phaseOf(v){
   return { name:"discharging", into:e-p.balDays-p.loadDays-p.ladDays, len:p.dischDays };
 }
 
-/* Consume bunkers, switching grade inside an ECA. If the tanks run dry the
-   ship must lift wherever she is, at that port's price plus a hurry premium —
-   which is exactly the penalty for not planning a bunker call. */
+/* Consume bunkers, switching grade inside an ECA.
+   CASH moves when you BUY fuel — a lift, the voyage stem, or an emergency
+   purchase at sea. Drawing on fuel already in the tanks is not a cash movement;
+   it is inventory you have already paid for. It is still charged to the voyage
+   P&L at what it cost, which is what keeps TCE honest.
+   Charging cash on both the lift and the burn made fuel cost double. */
 function burnFuel(sh, mt, inEca, atPort, onHire){
   if(mt <= 0) return;
   const grade = inEca ? "mgo" : (sh.scrubber ? "hsfo" : "vlsfo");
@@ -2343,7 +2347,8 @@ function burnFuel(sh, mt, inEca, atPort, onHire){
   if(use > 0){
     sh.rob[grade] = have - use; need -= use;
     const c = use * (sh.robCost[grade] ?? CFG.FUEL[grade].base);
-    if(!onHire){ v.act.bunkerCost += c; S.cash -= c; S.ledger.bunkers += c; }
+    // Voyage P&L only — the cash left when this fuel was bought.
+    if(!onHire) v.act.bunkerCost += c;
     v.act.bunkerMt[grade] = (v.act.bunkerMt[grade]||0) + use;
   }
   if(need > 0.0001){
@@ -2351,6 +2356,7 @@ function burnFuel(sh, mt, inEca, atPort, onHire){
     const port = atPort || PORTS[sh.port] || PORTS.rotterdam;
     const px = (bunkerPrice(port, grade, MKT) ?? CFG.FUEL[grade].base*1.25)
                * (1 + CFG.EMERGENCY_LIFT_PREMIUM);
+    // Tanks dry at sea: a real purchase, so real cash.
     const c = need * px;
     if(!onHire){ v.act.bunkerCost += c; S.cash -= c; S.ledger.bunkers += c;
                  v.act.emergency = (v.act.emergency||0) + need; }
@@ -2706,22 +2712,37 @@ function sheetBunker(shipId){
 let bunkerLift = {};
 function renderBunker(sh, grade){
   const cls = shipCls(sh), port = PORTS[sh.port];
+  const inEca = port.eca === 1;
   const avail = Object.keys(CFG.FUEL).filter(g =>
     bunkerPrice(port, g, MKT) !== null && (g !== "hsfo" || sh.scrubber));
   if(!avail.length){
     showSheet("Bunkers", esc(port.name),
       `<div class="empty"><div class="big">⛽</div><div class="b">No bunkers available here</div>
-       <div class="sm mut2" style="margin-top:6px">${esc(port.name)} is not a bunkering port. Plan a call somewhere that is, or you will pay a hurry premium at sea.</div></div>`);
+       <div class="sm mut2" style="margin-top:6px">${esc(port.name)} is not a bunkering port. Fuel for a fixture is bought at the load port anyway and priced into the estimate — you only need to lift early when it is cheaper here than there.</div></div>`);
     return;
   }
-  const g = grade || (sh.scrubber && avail.includes("hsfo") ? "hsfo" : avail.includes("vlsfo") ? "vlsfo" : avail[0]);
+  // Default to the grade she can actually burn where she is. Offering VLSFO to a
+  // ship inside an ECA invites the player to spend half their cash on fuel that
+  // is illegal to burn on the next leg.
+  const g = grade || (inEca && avail.includes("mgo") ? "mgo"
+                    : sh.scrubber && avail.includes("hsfo") ? "hsfo"
+                    : avail.includes("vlsfo") ? "vlsfo" : avail[0]);
   const px = bunkerPrice(port, g, MKT);
   const space = cls.fuelCap - robTot(sh);
   const key = sh.id+g;
-  const lift = clamp(bunkerLift[key] ?? Math.min(space, cls.fuelCap*0.45), 0, space);
-  const cost = lift*px;
 
-  // Where else could she lift this grade, and at what?
+  // Endurance, which is the number that actually matters — not tonnes.
+  const ecoSpeed = cls.designSpeed - 1.5;
+  const burn = burnAt(cls, ecoSpeed, true);
+  const aboard = sh.rob[g] || 0;
+  const daysAboard = burn > 0 ? aboard/burn : 0;
+  const perDay = Math.max(1, Math.round(burn));
+  // Recommend a working stem — about three weeks of steaming — not a full tank.
+  const rec = clamp(Math.ceil(burn*21 - aboard), 0, Math.floor(space));
+  const lift = clamp(bunkerLift[key] ?? rec, 0, space);
+  const cost = lift*px;
+  const heavy = cost > S.cash*0.25;
+
   const others = Object.entries(PORTS)
     .map(([id,p])=>({ id, p, px: bunkerPrice(p, g, MKT) }))
     .filter(x=>x.px !== null && x.id !== sh.port)
@@ -2731,26 +2752,46 @@ function renderBunker(sh, grade){
     `<button aria-selected="${x===g}" onclick="renderBunker(S.ships.find(s=>s.id===${sh.id}),'${x}')">${CFG.FUEL[x].name}</button>`).join("")}</div>`;
 
   h += `<div class="card" style="margin:0 0 12px">
-    ${kv("Price here", "$"+px+"/mt")}
-    ${kv("On board", Math.round(robTot(sh)).toLocaleString()+" mt of "+cls.fuelCap.toLocaleString()+" mt")}
-    ${kv("Space", Math.round(space).toLocaleString()+" mt")}
+    ${kvs("You do not have to buy anything here",
+      `Fuel for a fixture is bought at the load port and already priced into every estimate. Lift early only when it is cheaper here than where she is going.`, "mut")}
   </div>`;
 
-  h += `<h2 class="sect" style="margin-top:0">Lift</h2><div class="card" style="margin:0">
+  h += `<h2 class="sect" style="margin-top:0">Endurance</h2><div class="card" style="margin:0">
+    ${kv(CFG.FUEL[g].name+" aboard", Math.round(aboard).toLocaleString()+" mt")}
+    ${kv("At "+ecoSpeed.toFixed(1)+" kn laden she burns", perDay+" mt/day")}
+    ${kv("That is", days1(daysAboard)+" of steaming", daysAboard<8?"neg":daysAboard<15?"haz":"pos")}
+    ${inEca?kvs("She is inside an "+T("eca","ECA"), "Only MGO may be burned here and on the next leg out.", "haz"):""}
+    ${kv("Tanks", Math.round(robTot(sh)).toLocaleString()+" of "+cls.fuelCap.toLocaleString()+" mt")}
+  </div>`;
+
+  h += `<h2 class="sect">Lift</h2><div class="card" style="margin:0">
     <div class="between"><div class="b mono">${Math.round(lift).toLocaleString()} mt</div>
-      <div class="b ${cost>S.cash?"neg":""}">${money0(cost)}</div></div>
+      <div class="b ${cost>S.cash?"neg":heavy?"haz":""}">${money0(cost)}</div></div>
     <input type="range" min="0" max="${Math.max(1,Math.floor(space))}" step="10" value="${Math.floor(lift)}"
       oninput="bunkerLift['${key}']=+this.value;renderBunker(S.ships.find(s=>s.id===${sh.id}),'${g}')">
-    <div class="row xs mut2"><span>0</span><span style="margin-left:auto">${Math.round(space).toLocaleString()} mt full</span></div>
+    <div class="row" style="gap:5px;flex-wrap:wrap;margin-top:2px">
+      ${[10,21,35].map(d=>{ const mt=clamp(Math.ceil(burn*d-aboard),0,Math.floor(space));
+        return `<button class="btn sm" style="${Math.abs(lift-mt)<5?"border-color:var(--acc)":""}"
+          onclick="bunkerLift['${key}']=${mt};renderBunker(S.ships.find(s=>s.id===${sh.id}),'${g}')">${d} days</button>`;}).join("")}
+      <button class="btn sm" onclick="bunkerLift['${key}']=${Math.floor(space)};renderBunker(S.ships.find(s=>s.id===${sh.id}),'${g}')">Fill</button>
+    </div>
+    <div class="xs mut2" style="margin-top:7px">${lift>0
+      ? `Takes her to ${days1((aboard+lift)/Math.max(burn,0.01))} of steaming at $${px}/mt.`
+      : `Nothing lifted.`}</div>
+    ${cost>S.cash?`<div class="xs neg" style="margin-top:6px">More than you have in the bank.</div>`
+      : heavy?`<div class="xs haz" style="margin-top:6px">That is ${pc(cost/S.cash)} of your cash tied up in fuel. A working stem is usually enough — the load port sells fuel too.</div>`:""}
   </div>`;
 
   h += `<h2 class="sect">Cheapest ${CFG.FUEL[g].name} elsewhere</h2><div class="card" style="margin:0">
-    ${others.map(o=>kv(esc(o.p.name), "$"+o.px+"/mt", o.px<px?"pos":"")).join("")}
-    <div class="xs mut2" style="margin-top:7px">Lifting where fuel is cheap and running through where it is dear is worth real money over a year. ${T("bunkers","Bunkers")} are the biggest voyage cost you actually control.</div>
+    ${kv(esc(port.name)+" (here)", "$"+px+"/mt", "b")}
+    ${others.map(o=>kv(esc(o.p.name), "$"+o.px+"/mt", o.px<px?"pos":"mut")).join("")}
+    <div class="xs mut2" style="margin-top:7px">Lifting where fuel is cheap and running through where it is dear is worth real money over a year. ${T("bunkers","Bunkers")} are the largest voyage cost you actually control.</div>
   </div>`;
 
   showSheet("Bunkering", `${esc(sh.name)} · ${esc(port.name)}`, h,
-    `<button class="btn pri" ${cost>S.cash||lift<1?"disabled":""} onclick="doBunker(${sh.id},'${g}',${Math.floor(lift)},${px})">Lift ${Math.round(lift).toLocaleString()} mt for ${money(cost)}</button>`);
+    `<button class="btn ${heavy?"":"pri"}" ${cost>S.cash||lift<1?"disabled":""}
+      onclick="doBunker(${sh.id},'${g}',${Math.floor(lift)},${px})">
+      ${lift<1?"Lift nothing":`Lift ${Math.round(lift).toLocaleString()} mt for ${money(cost)}`}</button>`);
 }
 function doBunker(shipId, g, mt, px){
   const sh = S.ships.find(s=>s.id===shipId); if(!sh || mt<1) return;
@@ -3004,6 +3045,10 @@ function newGame(seed){
   const val = assetValue(cfg.cls, 2026 - cfg.built, MKT);
   const ship = mkShip(s, cfg.cls, cfg.name, cfg.built, cfg.port);
   ship.flag = "nis"; ship.classSoc = "dnv";        // a Norwegian owner's default
+  // She comes with bunkers aboard, weighted to the grade her home trade burns:
+  // the Baltic and North Sea are an ECA throughout, so that means MGO.
+  ship.rob = { mgo: 340, vlsfo: 240 };
+  ship.robCost = { mgo: CFG.FUEL.mgo.base + 30, vlsfo: CFG.FUEL.vlsfo.base + 30 };
   ship.flagMult = flagOpexMult(ship.flag);
   ship.debt = { principal: val*cfg.ltv, orig: val*cfg.ltv, rate: cfg.rate,
                 termDays: cfg.termYears*365, paidP:0, paidI:0 };
@@ -3018,8 +3063,9 @@ function newGame(seed){
 function mkShip(s, clsId, name, built, port){
   const cls = CLASSES[clsId];
   const rob = {}, robCost = {};
-  rob.vlsfo = Math.round(cls.fuelCap*0.30);
-  rob.mgo   = Math.round(cls.fuelCap*0.10);
+  const eca = (PORTS[port] || {}).eca === 1;
+  rob.vlsfo = Math.round(cls.fuelCap*(eca ? 0.16 : 0.32));
+  rob.mgo   = Math.round(cls.fuelCap*(eca ? 0.26 : 0.10));
   robCost.vlsfo = CFG.FUEL.vlsfo.base + 30;
   robCost.mgo   = CFG.FUEL.mgo.base + 30;
   const age = 2026 + Math.floor((s.day||0)/365) - built;
@@ -3194,12 +3240,15 @@ function advanceVoyage(sh, dt, quiet){
     if(!onHire && p.warCost){ v.act.war += p.warCost; S.cash -= p.warCost; S.ledger.war += p.warCost; }
     if(has("psc")) maybePsc(sh, quiet);
   }
-  // Freight advance against the bill of lading, i.e. once she is loaded.
+  // Freight advance against the bill of lading, i.e. once she is loaded — and
+  // the voyage bunker stem at the same moment, so the two largest cash movements
+  // offset each other the way an owner actually times them.
   if(!v.billed.freight && !onHire && (ph.name === "laden" || ph.name === "discharging")){
     v.billed.freight = true;
     const adv = p.net * CFG.FREIGHT_ON_BL;
     v.act.freightAdv = adv;
     S.cash += adv; S.ledger.freight += adv;
+    stemForVoyage(sh, v, lp);
   }
   if(ph.name === "discharging" && !v.billed.disch){
     v.billed.disch = true;
@@ -3209,6 +3258,26 @@ function advanceVoyage(sh, dt, quiet){
   v.elapsed += dt; v.act.days += dt;
   sh.cii.nm += (ph.name === "ballast" || ph.name === "laden") ? (ph.name==="laden"?p.spLad:p.spBal)*24*dt : 0;
   if(v.elapsed >= p.days + (v.act.extra||0) - 1e-9) settleVoyage(sh, quiet);
+}
+
+/* Buy the fuel this voyage still needs, at the load port's screen price. Without
+   this the tanks simply ran dry mid-ocean and the player paid a hurry premium on
+   fuel the estimate had already quoted at the normal price. */
+function stemForVoyage(sh, v, loadPort){
+  const p = v.plan;
+  const left = clamp(1 - v.elapsed/Math.max(p.days, 0.01), 0, 1);
+  for(const [g, mt] of Object.entries(p.fuel || {})){
+    const need = mt*left*1.16 - (sh.rob[g] || 0);        // margin for weather and delay
+    if(need <= 1) continue;
+    const px = bunkerPrice(loadPort, g, MKT)
+            ?? Math.round(CFG.FUEL[g].base*MKT.oil*(1+CFG.EMERGENCY_LIFT_PREMIUM));
+    const cost = need*px;
+    const had = sh.rob[g] || 0, hadPx = sh.robCost[g] || px;
+    sh.rob[g] = had + need;
+    sh.robCost[g] = (had*hadPx + need*px)/(had + need);
+    S.cash -= cost; S.ledger.bunkers += cost;
+    v.act.stem = (v.act.stem||0) + cost;
+  }
 }
 
 function settleVoyage(sh, quiet){
@@ -3272,7 +3341,7 @@ function settleVoyage(sh, quiet){
     canals: p.canals, altNm: p.altNm,
     carbon, etsCost:ets.cost, feuCost:feu.cost, etsCo2:ets.co2, euScope:scope,
     demurrage: dem, laytime:p.laytime, overrun:p.overrun, demRate:p.demRate,
-    advance: v.act.freightAdv||0, wcap:p.wcap,
+    advance: v.act.freightAdv||0, wcap:p.wcap, stem: v.act.stem||0,
     costs, gvp, tce, opex, netCash: gvp-opex, notes: v.act.notes.slice(),
   };
   S.log.unshift(entry);
@@ -4493,6 +4562,8 @@ function renderFixtureSheet(sh, f, sp){
   h += `<h2 class="sect">Cash flow</h2><div class="card" style="margin:0${short?";border-color:var(--neg)":""}">
     ${kvs("Freight terms", `${pc(CFG.FREIGHT_ON_BL)} against the ${T("blading","bill of lading")}, balance on delivery`)}
     ${kv("Advance arrives", money0(e.advance)+" on day "+(Math.round(e.preDays*10)/10))}
+    ${e.stemCost>1?kv("Fuel to buy at the load port", "−"+money0(e.stemCost)+", same day", "neg"):kv("Fuel to buy", "none — she has enough aboard", "pos")}
+    ${kvt("Net when she loads", money(e.advance-e.stemCost, e.advance-e.stemCost>0), cls_pn(e.advance-e.stemCost))}
     ${kv(T("wcap","Cash to fund until then"), money0(e.wcap), short?"neg":"")}
     ${kv("You have", money(S.cash), short?"neg":"pos")}
     ${short

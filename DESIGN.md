@@ -944,3 +944,77 @@ belongs.
 Also fixed here: `.kv` rows had `white-space: nowrap` on the value, so any
 sentence-length value overlapped its own label. Added a stacked variant and
 applied it to the four rows that carry prose.
+
+---
+
+## Appendix F — Fuel was being paid for twice
+
+Player report: still too expensive; ran out of money after five contracts,
+having had to buy bunkers. "Money flows out of my account like a waterfall
+when on a voyage."
+
+Two faults, one of them a straight accounting bug.
+
+### 1. Fuel was charged on the lift AND on the burn
+
+`doBunker` debited cash when fuel was lifted, and `burnFuel` debited cash again
+as the same fuel was consumed. Buy 500 mt and you paid for it twice. The bug
+only surfaced if the player used the Bunker button — which is exactly what the
+report describes, and why the voyage estimate had always reconciled against
+actuals in testing (a ship that never lifts consumes only the free stem she was
+created with, and pays once).
+
+Now there is one rule: **cash moves when you buy fuel** — a lift, the voyage
+stem, or an emergency purchase at sea. Drawing on what is already in the tanks
+is not a cash movement; it is inventory already paid for. It is still charged to
+the voyage P&L at cost, which is what keeps TCE honest and matches how a real
+voyage account is drawn up.
+
+### 2. The Bunker button defaulted to a ruinous purchase of the wrong grade
+
+From the opening position, one tap offered **540 mt of VLSFO for $301,320 — 46%
+of all cash — while the ship lay at Riga, inside the Baltic ECA, where VLSFO
+cannot legally be burned.** The sheet showed tonnes and never mentioned that she
+had 6.8 days of fuel aboard.
+
+Rebuilt around endurance rather than tonnage:
+
+- Grade defaults to what she can actually burn where she is — MGO inside an ECA.
+- The lift defaults to a **working stem of about three weeks' steaming**, not
+  45% of tank capacity. At Riga that is 31 mt for $23k (4% of cash) instead of
+  540 mt for $301k (46%).
+- An **Endurance** panel leads: what is aboard, what she burns per day, and how
+  many days that is — coloured red under 8 days.
+- Quick presets for 10 / 21 / 35 days and Fill.
+- A warning when a lift exceeds 25% of cash.
+- And the note that matters most: **you do not have to buy anything here.** Fuel
+  for a fixture is bought at the load port and already priced into the estimate.
+  Lifting early is an arbitrage decision, not a chore.
+
+### Supporting changes
+
+- **Voyage stem**: fuel the voyage still needs is bought at the load port at the
+  screen price, timed to the same moment as the freight advance so the two
+  largest cash movements offset. Previously the tanks simply ran dry mid-ocean
+  and the player paid a hurry premium on fuel the estimate had quoted at the
+  normal price.
+- The opening ship now carries a stem weighted to her trade — 340 mt MGO / 240 mt
+  VLSFO, since the Baltic and North Sea are an ECA throughout. Endurance at the
+  start went from 6.8 days to 19.3.
+- Ships bought or delivered elsewhere get a stem matched to where they lie.
+- The fixture sheet's Cash flow section now shows the fuel to be bought at the
+  load port and the **net cash when she loads** (advance less stem).
+
+### Five consecutive contracts from the opening position
+
+| # | Route | Days | TCE | Cash start | Trough | Cash end |
+|---|---|---:|---:|---:|---:|---:|
+| 1 | Riga → Ghent | 11.3 | $13,504 | $650,000 | $602,442 | $786,628 |
+| 2 | Ghent → Aliaga | 20.0 | $14,475 | $786,628 | $723,292 | $1,061,931 |
+| 3 | Iskenderun → Antwerp | 29.0 | $12,129 | $1,061,931 | $978,483 | $1,334,023 |
+| 4 | Amsterdam → Iskenderun | 23.5 | $16,428 | $1,334,023 | $1,257,247 | $1,593,241 |
+| 5 | Iskenderun → Antwerp | 28.5 | $19,391 | $1,593,241 | $1,505,675 | $1,994,846 |
+
+Monotonic. Equity $2.10M → $3.74M over 112 days. Stress-tested over 180 days
+across five seeds: no strategy goes bust, and skill still separates them —
+$3.74M equity reading TCE against $2.97M always taking the longest voyage.
