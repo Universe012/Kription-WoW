@@ -1386,3 +1386,104 @@ debt, service, loan count and mirror exactly.
   of a credit committee. It sits between the 65% single-ship advance rate and
   the 80% covenant, which feels right, but it is the number most likely to want
   tuning once players push a large fleet.
+
+---
+
+## Appendix L — Polish pass
+
+A sweep of the whole game rather than one feature. The method was an automated
+audit first, visual review second: a harness renders every screen at three
+progression stages (opening position, established company, large fleet) and
+every one of the 34 sheets, and checks each render for broken value tokens
+(`NaN`, `undefined`, `−$0`), page-level horizontal overflow, elements spilling
+past the viewport, label/value collisions in `.kv` rows, tap targets under
+44px, unresolvable `onclick` handlers and glossary terms with no entry.
+
+First run: **161 undersized tap targets, 6 broken-token screens, 2 pages
+overflowing horizontally, 3 spills.** Final run: clean.
+
+### Layout and touch
+
+**Tap targets.** The brief set a 44×44px floor and a good deal of the interface
+was under it: `.btn.sm` at 36px, `.seg button` at 36px, the coach dismiss button
+at 36px, the auto-pause Resume button at 32px, the fleet card's Bunker button at
+30px and the Bank shortcut at 32px. All raised to 44. It costs a little vertical
+density and it is the single change most likely to be felt on a real phone.
+
+**The charter screen overflowed sideways.** The idle-ship picker put one
+segmented-control button per ship, and `.seg` neither wraps nor scrolls — with
+sixteen idle ships the page itself became 1,021px wide in a 390px viewport, so
+the whole interface scrolled horizontally. Added a `.seg.scroll` variant that
+scrolls sideways with `flex:0 0 auto` children, used once the picker is past
+three ships, which is the point where it stops being a segmented control and
+starts being a list.
+
+**The Fix button jumped between cards.** It lived at the end of the fixture
+card's chip row with `margin-left:auto`, so on cards with four chips it wrapped
+onto its own line and on cards with three it did not. Chips and action now have
+their own rows, so the button is in the same place on every card.
+
+**Ship cards were truncating the useful half of the subtitle.** `Handysize ·
+28,200 dwt · 22yr · Marshall Isla…` — the registry is on almost every hull at
+the start and pushed everything else into an ellipsis. The flag now appears only
+when it is not the default, i.e. only when it is a decision the player made.
+
+### Numbers that were lying, or looked like it
+
+**`−$0` six times over.** The P&L printed every cost line whether or not it had
+anything on it, so a new run opened on a wall of `−$0`. Added `cost()`/`cost0()`
+helpers that render zero as `$0` rather than minus-nothing, and made the P&L
+lines appear only once they have a value, with one line of copy explaining why
+the statement is nearly empty.
+
+**"+0.0 / 30d" on every freight index** at the start of a run, because there was
+no 30-day history to difference against and the fallback compared the value with
+itself. Now reads "no 30-day history yet" until there is one.
+
+**"11,075 days at this rate".** False precision about a rate that will not hold.
+Runway is now quoted in days under a quarter, years under three, and "over three
+years" beyond that.
+
+**"13.00 kn".** The speed slider steps in quarter-knots so two decimals are
+sometimes needed and usually not. A `kn()` helper drops trailing zeros.
+
+**The cash chart's axis labels sat on top of the line.** They were SVG `<text>`
+inside a `preserveAspectRatio="none"` viewBox, so they were both horizontally
+stretched and drawn over the plot whenever the balance ran near the top of its
+range. Moved outside the chart as ordinary HTML.
+
+### Three model bugs
+
+**Net-per-day was ignoring charter hire and liner income entirely.** It summed
+voyage TCE, subtracted OPEX and debt service, and stopped. A fleet earning well
+on time charter therefore showed a large negative number in the top bar. Split
+into `costBaseDay()` and `earnDay()`, with hire (net of address commission) and
+each liner string's contribution on the earnings side. Measured against a
+120-day idle run the HUD now reads −$5,808/day against an actual −$5,586/day.
+
+**Liner vessels were being over-refunded their OPEX.** `linerPlan` carries the
+whole string's OPEX inside `costPerDay`, so the service accrual charged per-ship
+OPEX and then refunded it — but the refund was struck on `opexDay × flagMult`
+while `accrueDaily` charged `opexDayFull`, which is 7% lower since the
+management fee was carved out ashore in Appendix H. The difference came back to
+the player on every liner vessel, every day. `accrueDaily` now skips liner ships
+outright, the way it already skipped bareboat-out ships, and the refund is gone.
+
+**The sale-and-purchase market was flying Norwegian.** Flags were drawn
+uniformly across the seven registries, so a Norway NOR ship — a few hundred
+vessels worldwide, on Norwegian terms — appeared as often as a Panamanian one.
+Weighted to roughly the world fleet's split: Panama 30%, Liberia 26%, Marshall
+Islands 24%, Malta 10%, Singapore 7%, NIS 2.5%, NOR 0.5%.
+
+### One screen that was empty
+
+The opening Fleet screen was a ship card, a button, and a large void. Every
+Fleet screen now closes with a **Position** card: cost base, earnings, net, and
+how long the cash lasts at that rate — the three numbers that decide whether a
+run survives, and a direct answer to the question that came up more than any
+other during this build.
+
+### Not changed
+
+The `dead-handler` finding that survives every run is the audit matching `if` in
+`onclick="if(confirm(...))"` — a false positive in the checker, not the game.

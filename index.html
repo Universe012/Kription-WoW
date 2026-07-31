@@ -70,7 +70,7 @@ button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:poin
 #pausebar .r{flex:1;min-width:0;font-size:12px;font-weight:600;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #pausebar button{
-  flex:none;min-height:32px;padding:0 13px;border-radius:8px;font-size:12.5px;font-weight:700;
+  flex:none;min-height:44px;padding:0 15px;border-radius:8px;font-size:12.5px;font-weight:700;
   background:var(--haz);color:#160A02;border:0;
 }
 
@@ -124,7 +124,9 @@ h2.sect:first-child{margin-top:2px}
 .btn.pri{background:var(--acc);border-color:var(--acc);color:#04121E}
 .btn.pos{background:var(--pos);border-color:var(--pos);color:#04120C}
 .btn.dang{background:transparent;border-color:var(--neg);color:var(--neg)}
-.btn.sm{min-height:36px;font-size:13.5px;border-radius:10px;width:auto;padding:0 14px}
+/* Small buttons are still full-height targets — 44px is the floor everywhere a
+   thumb has to land, which is the whole point of a one-handed game. */
+.btn.sm{min-height:44px;font-size:13.5px;border-radius:10px;width:auto;padding:0 14px}
 .btn:disabled{opacity:.4}
 .btn.pulse{animation:pulse 1.9s ease-in-out infinite}
 @keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(74,158,218,.42)}50%{box-shadow:0 0 0 9px rgba(74,158,218,0)}}
@@ -155,8 +157,13 @@ h2.sect:first-child{margin-top:2px}
 
 .seg{display:flex;gap:4px;background:var(--surf);border:1px solid var(--line);
   border-radius:11px;padding:3px;margin-bottom:12px}
-.seg button{flex:1;min-height:36px;border-radius:8px;font-size:13px;font-weight:650;color:var(--mut)}
+.seg button{flex:1;min-height:44px;border-radius:8px;font-size:13px;font-weight:650;color:var(--mut)}
 .seg button[aria-selected="true"]{background:var(--surf2);color:var(--txt)}
+/* A segmented control listing something open-ended — the idle ships, say —
+   scrolls sideways instead of squeezing every option to nothing. */
+.seg.scroll{overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+.seg.scroll::-webkit-scrollbar{display:none}
+.seg.scroll button{flex:0 0 auto;padding:0 15px}
 
 .kv{display:flex;justify-content:space-between;gap:12px;padding:7px 0;
   border-bottom:1px solid rgba(30,54,72,.6);font-size:13.5px}
@@ -225,7 +232,7 @@ h2.sect:first-child{margin-top:2px}
 #coach .ct{font-weight:750;font-size:14px;margin-bottom:3px}
 #coach .cb{font-size:13.5px;line-height:1.42;opacity:.86}
 #coach button{margin-top:10px;background:rgba(4,18,30,.14);border-radius:9px;
-  min-height:36px;padding:0 15px;font-weight:750;font-size:13px;float:right}
+  min-height:44px;padding:0 18px;font-weight:750;font-size:13px;float:right}
 
 /* ============================================================================
    TOAST
@@ -1293,13 +1300,13 @@ const LANES = [
    the single biggest structural lever in the game.
 ------------------------------------------------------------------------------- */
 const FLAGS = {
-  panama:   { name:"Panama",           crew:0.95, psc:1.35, rep:-0.04, feePerGt:0.28, tonnageTax:0,      note:"Cheap and quick to register. More inspections, and some charterers mark you down." },
-  liberia:  { name:"Liberia",          crew:0.97, psc:1.05, rep:0.00,  feePerGt:0.34, tonnageTax:0,      note:"The workhorse open registry. Solid Paris MOU performance, no tax benefit." },
-  marshall: { name:"Marshall Islands", crew:0.98, psc:0.95, rep:0.02,  feePerGt:0.36, tonnageTax:0,      note:"Well regarded, widely bank-accepted, white list." },
-  malta:    { name:"Malta",            crew:1.02, psc:0.92, rep:0.03,  feePerGt:0.42, tonnageTax:0.00042,note:"EU flag with an EU-approved tonnage tax regime. Good for European trades." },
-  singapore:{ name:"Singapore",        crew:1.06, psc:0.80, rep:0.06,  feePerGt:0.48, tonnageTax:0.00030,note:"Excellent reputation and a favourable regime, but a dearer manning bill." },
-  nis:      { name:"Norway NIS",       crew:1.14, psc:0.75, rep:0.08,  feePerGt:0.52, tonnageTax:0.00022,note:"Norwegian International Ship Register: foreign ratings on foreign terms, Norwegian tonnage tax, first-class standing. Cannot carry domestic Norwegian cargo." },
-  nor:      { name:"Norway NOR",       crew:1.62, psc:0.70, rep:0.11,  feePerGt:0.58, tonnageTax:0.00022,note:"Norwegian Ordinary Register: Norwegian terms throughout. The best reputation money can buy, and it costs real money. Required for Norwegian coastal work." },
+  panama:   { name:"Panama", short:"Panama",           crew:0.95, psc:1.35, rep:-0.04, feePerGt:0.28, tonnageTax:0,      note:"Cheap and quick to register. More inspections, and some charterers mark you down." },
+  liberia:  { name:"Liberia", short:"Liberia",          crew:0.97, psc:1.05, rep:0.00,  feePerGt:0.34, tonnageTax:0,      note:"The workhorse open registry. Solid Paris MOU performance, no tax benefit." },
+  marshall: { name:"Marshall Islands", short:"Marshall Is", crew:0.98, psc:0.95, rep:0.02,  feePerGt:0.36, tonnageTax:0,      note:"Well regarded, widely bank-accepted, white list." },
+  malta:    { name:"Malta", short:"Malta",            crew:1.02, psc:0.92, rep:0.03,  feePerGt:0.42, tonnageTax:0.00042,note:"EU flag with an EU-approved tonnage tax regime. Good for European trades." },
+  singapore:{ name:"Singapore", short:"Singapore",        crew:1.06, psc:0.80, rep:0.06,  feePerGt:0.48, tonnageTax:0.00030,note:"Excellent reputation and a favourable regime, but a dearer manning bill." },
+  nis:      { name:"Norway NIS", short:"NIS",       crew:1.14, psc:0.75, rep:0.08,  feePerGt:0.52, tonnageTax:0.00022,note:"Norwegian International Ship Register: foreign ratings on foreign terms, Norwegian tonnage tax, first-class standing. Cannot carry domestic Norwegian cargo." },
+  nor:      { name:"Norway NOR", short:"NOR",       crew:1.62, psc:0.70, rep:0.11,  feePerGt:0.58, tonnageTax:0.00022,note:"Norwegian Ordinary Register: Norwegian terms throughout. The best reputation money can buy, and it costs real money. Required for Norwegian coastal work." },
 };
 const CLASS_SOC = {
   dnv:  { name:"DNV",              cost:1.14, psc:0.82, rep:0.06 },
@@ -2436,8 +2443,16 @@ function money(n, sign){
   return s;
 }
 const money0 = (n)=> (n<0?"−":"")+"$"+Math.round(Math.abs(n)).toLocaleString("en-US");
+/* A cost line. Zero renders as "$0", never "−$0" — a minus sign in front of
+   nothing reads as a rendering fault, and early in a run there are plenty of
+   cost lines still sitting at zero. */
+const cost  = (n)=> n > 0.5 ? "−"+money(n)  : "$0";
+const cost0 = (n)=> n > 0.5 ? "−"+money0(n) : "$0";
 const perDay = (n)=> money(n, n>0) + "/d";
 const days1  = (n)=> (Math.round(n*10)/10).toFixed(1)+"d";
+/* Speeds come off a 0.25-knot slider, so two decimals are sometimes needed and
+   usually not. Trailing zeros make a steady 13 knots look like a measurement. */
+const kn = (v)=> String(+(+v).toFixed(2)) + " kn";
 const pc     = (n)=> Math.round(n*100)+"%";
 const nm0    = (n)=> Math.round(n).toLocaleString("en-US")+" nm";
 const cls_pn = (n)=> n>=0 ? "pos" : "neg";
@@ -2507,25 +2522,45 @@ function resumeClock(){
   dirty();
 }
 
-/* Net daily result: what the company is actually earning per day right now.
-   Voyage contribution is the plan's TCE for ships at sea, zero for idle ships,
-   less OPEX for every ship whatever she is doing, less bareboat hire on leased
-   tonnage, less the shore organisation, less debt service.
+/* What the company costs to exist, per day. Vessel OPEX and registry fees,
+   bareboat hire on tonnage leased in, the shore organisation, and debt service.
+   None of it stops when a ship is idle, which is the single most important
+   thing about this business to understand — so it gets its own number.
 
-   Debt service is drafted monthly but shown here as its daily equivalent, so
+   Two exemptions, both because the cost sits somewhere else: a ship chartered
+   out on bareboat is the charterer's to run, and a ship in a liner string has
+   her OPEX inside the service's own economics.
+
+   Debt service is drafted monthly but counted here as its daily equivalent, so
    the instalment that leaves the account on the 30th is never a surprise. */
-function netPerDay(){
-  let n = 0;
+function costBaseDay(){
+  let c = 0;
   for(const sh of S.ships){
-    const cls = shipCls(sh);
-    if(sh.voyage) n += sh.voyage.plan.tce;
-    n -= opexDayFull(cls, shipAge(sh), sh);
-    if(sh.lease) n -= sh.lease.daily;
+    const emp = sh.emp || { type:"spot" };
+    if(emp.type !== "bb" && emp.type !== "liner")
+      c += opexDayFull(shipCls(sh), shipAge(sh), sh);
+    c += CLASSES[sh.cls].gt * FLAGS[sh.flag||"marshall"].feePerGt / 365;
+    if(sh.lease) c += sh.lease.daily;
   }
-  n -= shoreCostDay();
-  n -= debtServiceDay();
-  return n;
+  return c + shoreCostDay() + debtServiceDay();
 }
+
+/* And what it earns. TCE for ships at sea, hire for ships on charter out, and
+   the modelled contribution of each liner string. All three are struck before
+   OPEX, which is why OPEX sits wholly on the cost side above. */
+function earnDay(){
+  let e = 0;
+  for(const sh of S.ships){
+    const emp = sh.emp || { type:"spot" };
+    const offHire = !!sh.dd || sh.status === "detained";
+    if(sh.voyage) e += sh.voyage.plan.tce;
+    else if((emp.type === "tc" || emp.type === "bb" || emp.type === "dayrate") && !offHire)
+      e += emp.rate * (1 - CFG.TC.addComm);
+  }
+  for(const svc of S.services) if(svc.plan) e += svc.plan.ebitPerDay;
+  return e;
+}
+const netPerDay = ()=> earnDay() - costBaseDay();
 function utilisation(){
   if(!S.ships.length) return 0;
   return S.ships.filter(s=>s.status!=="idle").length / S.ships.length;
@@ -2690,20 +2725,20 @@ function voyageBreakdown(e){
 
   h += `<h2 class="sect">Money</h2><div class="card" style="margin:0">
     ${kv(`Freight ${Math.round(e.qty).toLocaleString()} mt × $${e.rate.toFixed(2)}`, money0(e.gross))}
-    ${kv(T("addcomm","Commissions"), "−"+money0(e.comm), "neg")}
+    ${kv(T("addcomm","Commissions"), cost0(e.comm), "neg")}
     ${kv("Net freight", money0(e.net))}
     ${e.advance>0?kv(`  of which ${pc(CFG.FREIGHT_ON_BL)} advanced on loading`, money0(e.advance), "mut"):""}
     ${Object.entries(e.bunkerMt).filter(([g,mt])=>mt>0.5).map(([g,mt])=>
        kv(T(g,CFG.FUEL[g].name)+" "+Math.round(mt)+" mt", "", "mut")).join("")}
-    ${kv(T("bunkers","Bunkers")+" total", "−"+money0(e.bunkerCost), "neg")}
+    ${kv(T("bunkers","Bunkers")+" total", cost0(e.bunkerCost), "neg")}
     ${e.emergency>0.5?`<div class="xs haz" style="margin:-2px 0 6px">${Math.round(e.emergency)} mt lifted at sea prices plus ${pc(CFG.EMERGENCY_LIFT_PREMIUM)} — she ran short. Bunker before sailing next time.</div>`:""}
-    ${kv(T("da","Port disbursements"), "−"+money0(e.portDA), "neg")}
-    ${e.carbon>1 ? kv(T("ets","Carbon")+` — ${Math.round(e.etsCo2)} t CO₂`, "−"+money0(e.carbon), "neg") : ""}
+    ${kv(T("da","Port disbursements"), cost0(e.portDA), "neg")}
+    ${e.carbon>1 ? kv(T("ets","Carbon")+` — ${Math.round(e.etsCo2)} t CO₂`, cost0(e.carbon), "neg") : ""}
     ${Math.abs(e.demurrage)>100 ? kv(
         e.overrun>0 ? T("demurrage","Demurrage")+" "+days1(e.overrun) : T("despatch","Despatch")+" "+days1(-e.overrun),
         (e.demurrage>0?"+":"−")+money0(Math.abs(e.demurrage)), e.demurrage>0?"pos":"neg") : ""}
     ${kvt("Gross voyage profit", money0(e.gvp), cls_pn(e.gvp))}
-    ${kv(T("opex","OPEX")+" "+days1(e.days), "−"+money0(e.opex), "neg")}
+    ${kv(T("opex","OPEX")+" "+days1(e.days), cost0(e.opex), "neg")}
     ${kvt("Net contribution", money0(e.netCash), cls_pn(e.netCash))}
   </div>`;
 
@@ -2711,8 +2746,8 @@ function voyageBreakdown(e){
     h += `<h2 class="sect">Carbon detail</h2><div class="card" style="margin:0">
       ${kv("CO₂ emitted", Math.round(e.etsCo2).toLocaleString()+" t")}
       ${kv("EU scope", pc(e.euScope)+(e.euScope===1?" — intra-EU":e.euScope===0.5?" — one leg in the EU":""))}
-      ${kv(T("ets","EU ETS"), "−"+money0(e.etsCost), "neg")}
-      ${kv(T("fueleu","FuelEU"), "−"+money0(e.feuCost), "neg")}
+      ${kv(T("ets","EU ETS"), cost0(e.etsCost), "neg")}
+      ${kv(T("fueleu","FuelEU"), cost0(e.feuCost), "neg")}
     </div>`;
   }
   return h;
@@ -2863,8 +2898,10 @@ function doBunker(shipId, g, mt, px){
 
 function indexCard(k){
   const m = INDEX_META[k], v = S.mkt.idx[k], hist = S.mkt.hist[k] || [];
-  const prev = hist.length>6 ? hist[hist.length-7] : v;
-  const chg = v - prev;
+  // Without a month of history there is no month of movement to report. Saying
+  // "+0.0 / 30d" on the opening screen states a fact that has not happened yet.
+  const has30 = hist.length > 6;
+  const chg = has30 ? v - hist[hist.length-7] : 0;
   const band = v<70?"Weak":v<95?"Soft":v<115?"Mid-cycle":v<150?"Firm":"Strong";
   const bcls = v<70?"neg":v<95?"haz":v<115?"":"pos";
   return `<div class="card tap" onclick="sheetIndex('${k}')">
@@ -2873,7 +2910,9 @@ function indexCard(k){
         <div class="xs mut2">${band} market</div></div>
       <div style="text-align:right">
         <div class="lg b ${bcls}">${v.toFixed(1)}</div>
-        <div class="xs ${cls_pn(chg)}">${chg>=0?"+":""}${chg.toFixed(1)} / 30d</div>
+        <div class="xs ${has30?cls_pn(chg):"mut2"}">${has30
+          ? (chg>=0?"+":"")+chg.toFixed(1)+" / 30d"
+          : "no 30-day history yet"}</div>
       </div></div>
     ${sparkline(hist)}
   </div>`;
@@ -2943,12 +2982,15 @@ function cashChart(){
   const y=v=>h-14-((v-lo)/rg)*(h-24);
   const pts=d.map((p,i)=>`${x(i).toFixed(1)},${y(p.cash).toFixed(1)}`).join(" ");
   const last=vals[vals.length-1];
-  return `<svg class="chart" style="height:110px" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+  // The scale labels sit outside the plot rather than inside it. Drawn as SVG
+  // text they were both stretched by preserveAspectRatio="none" and laid over
+  // the line itself whenever the balance ran near the top of the range.
+  return `<div class="between xs mut2" style="margin-bottom:2px"><span>${money(hi)}</span><span>high</span></div>
+  <svg class="chart" style="height:104px" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
     ${lo<0?`<line class="gl" x1="${pad}" y1="${y(0)}" x2="${w-4}" y2="${y(0)}" stroke="var(--neg)" stroke-dasharray="3 3"/>`:""}
     <polyline points="${pts}" fill="none" stroke="${last>=0?"var(--pos)":"var(--neg)"}" stroke-width="1.6" vector-effect="non-scaling-stroke"/>
-    <text class="ax" x="0" y="12">${money(hi)}</text>
-    <text class="ax" x="0" y="${h-2}">${money(lo)}</text>
-  </svg><div class="xs mut2">Last ${d.length} days</div>`;
+  </svg>
+  <div class="between xs mut2" style="margin-top:2px"><span>${money(lo)}</span><span>Last ${d.length} days</span></div>`;
 }
 
 function sheetGlossary(){
@@ -3206,8 +3248,10 @@ function accrueDaily(sh, dt, quiet){
   const emp = sh.emp || { type:"spot" };
   const offHire = !!sh.dd || sh.status === "detained";
 
-  // Bareboat: the charterer carries the whole running cost. That is the trade.
-  if(emp.type !== "bb"){
+  // Bareboat out: the charterer carries the whole running cost. That is the trade.
+  // Liner: the service's own economics already carry OPEX for its whole string
+  // (linerPlan's opexYear), so charging it again here would be double counting.
+  if(emp.type !== "bb" && emp.type !== "liner"){
     const opex = opexDayFull(cls, shipAge(sh), sh) * dt;
     S.cash -= opex; S.ledger.opex += opex;
   }
@@ -3741,7 +3785,7 @@ function refreshSnp(force){
     const cls = pool[Math.floor(rnd()*pool.length)];
     const age = Math.round(lerp(3, 22, Math.pow(rnd(), 0.8)));
     const cond = clamp(1 - Math.max(0, age-8)*0.012 + (rnd()-0.5)*0.16, 0.5, 1);
-    const flag = Object.keys(FLAGS)[Math.floor(rnd()*Object.keys(FLAGS).length)];
+    const flag = pickFlag(rnd);
     const csoc = Object.keys(CLASS_SOC)[Math.floor(rnd()*Object.keys(CLASS_SOC).length)];
     out.push({ id:"s"+(S.nextId++), cls, age, cond, flag, classSoc:csoc,
                scrubber: rnd()<0.22, eco: age<8 && rnd()<0.4,
@@ -3786,6 +3830,18 @@ function buyShip(offerId, ltv){
    credit rating, plus whatever the finance department is worth, plus a product
    spread — unsecured money costs more than a ship mortgage because there is no
    ship behind it. */
+/* Roughly the world fleet's registry split. Picking uniformly across the seven
+   registries put a Norwegian NOR ship on the sale-and-purchase market about as
+   often as a Panamanian one, which is upside down: NOR is a few hundred ships
+   on Norwegian terms, Panama and Liberia are tens of thousands. */
+const FLAG_WEIGHTS = { panama:0.30, liberia:0.26, marshall:0.24, malta:0.10,
+                       singapore:0.07, nis:0.025, nor:0.005 };
+function pickFlag(rnd){
+  let r = rnd();
+  for(const [k,w] of Object.entries(FLAG_WEIGHTS)){ r -= w; if(r <= 0) return k; }
+  return "marshall";
+}
+
 function loanRate(spread){
   return Math.max(0.02, CFG.FIN.rateBase + (CFG.FIN.marginByRating[S.rating] ?? 0.033)
                       + shoreFx("loanMarginAdj", 0) + (spread || 0));
@@ -4050,11 +4106,13 @@ function accrueService(svc, dt){
   const rev = plan.revPerDay*dt*relFactor*contractMix*cover;
   const cost = plan.costPerDay*dt;
   svc.rev += rev; svc.cost += cost; svc.teu += plan.teuMoved*dt/svc.freq;
+  // costPerDay already carries the string's OPEX, and accrueDaily skips these
+  // ships for exactly that reason. (This used to charge per-ship OPEX and then
+  // refund it — but the refund was struck on opexDay while the charge was
+  // opexDayFull, so the management-fee share carved out in §SHORE came back to
+  // the player on every liner vessel. Not charging it at all is both simpler
+  // and correct.)
   S.cash += rev - cost; S.ledger.liner += rev - cost;
-  // OPEX is inside costPerDay for the string, so refund the double charge the
-  // per-ship accrual made for these vessels.
-  const dbl = ships.reduce((a,s)=>a+opexDay(shipCls(s), shipAge(s))*(s.flagMult||1),0)*dt;
-  S.cash += dbl; S.ledger.opex -= dbl;
   for(const s of ships){ s.cii.co2 += plan.perShipBurn*CFG.FUEL.vlsfo.co2*dt*0.9;
                          s.cii.nm += svc.speed*24*dt*0.78; }
 }
@@ -4303,7 +4361,36 @@ function vFleet(){
     for(const e of S.log.slice(0,4)) h += logCard(e);
     if(S.log.length>4) h += `<button class="btn sm" style="width:100%;margin-top:2px" onclick="sheetAllVoyages()">All ${S.log.length} voyages</button>`;
   }
+  h += positionCard();
   return h;
+}
+
+/* The three numbers that decide whether a run survives: what the company costs
+   to exist, what it is earning, and how long the cash lasts at that rate. It
+   closes every Fleet screen, so the opening position is never a bare button on
+   an empty page and the question "where is my money going" has an answer that
+   is always one tap away. */
+/* Runway in the unit the player can act on. Under a quarter, days matter and
+   are worth counting; beyond three years the exact number is noise, and quoting
+   "11,075 days" would be false precision about a rate that will not hold. */
+function runwayText(d){
+  if(d < 120)  return Math.floor(d) + " days at this rate";
+  if(d < 1095) return (d/365).toFixed(1) + " years at this rate";
+  return "Over three years";
+}
+function positionCard(){
+  const base = costBaseDay(), earn = earnDay(), net = earn - base;
+  const runway = net < -1 ? S.cash/-net : null;
+  const working = S.ships.filter(s=>s.status!=="idle").length;
+  return `<h2 class="sect">Position</h2><div class="card">
+    ${kv("Cost base", money0(base)+"/day", "neg")}
+    ${kv("Earning", earn>0.5 ? money0(earn)+"/day" : "nothing — every ship is idle", earn>0.5?"pos":"haz")}
+    ${kvt("Net", (net>0?"+":"")+money0(net)+"/day", cls_pn(net))}
+    ${runway !== null
+      ? kv("Cash lasts", runwayText(runway), runway < 45 ? "neg" : runway < 120 ? "haz" : "")
+      : kv("Cash", money(S.cash)+" and building", "pos")}
+    <div class="xs mut2" style="margin-top:7px">Cost base is ${T("opex","OPEX")}, registry fees, the shore organisation and debt service${S.ships.some(s=>s.lease)?", plus bareboat hire on leased tonnage":""} — it runs whether ${working===S.ships.length&&working>0?"or not they are":"a ship is"} working. Earnings are ${T("tce","TCE")} for ships at sea and hire for ships on charter.</div>
+  </div>`;
 }
 
 function eventStrip(){
@@ -4350,7 +4437,11 @@ function shipCard(sh){
   return `<div class="card tap" onclick="sheetShip(${sh.id})">
     <div class="between"><div class="grow">
       <div class="b trunc">${esc(sh.name)}</div>
-      <div class="xs mut2 trunc">${cls.name} · ${capLabel(cls)} · ${age}yr · ${FLAGS[sh.flag].name}</div>
+      <div class="xs mut2 trunc">${cls.name} · ${capLabel(cls)} · ${age}yr${
+        // The registry only earns a place on the card when it is a decision the
+        // player made. Marshall Islands on every hull is just noise, and it was
+        // pushing the useful half of the line into an ellipsis.
+        sh.flag && sh.flag !== "marshall" ? " · "+FLAGS[sh.flag].short : ""}</div>
     </div><div style="text-align:right;flex:none">${chips.join(" ")}</div></div>
     <div class="sm mut trunc" style="margin-top:7px">${line2}</div>
     ${prog}
@@ -4361,7 +4452,7 @@ function shipCard(sh){
       <span class="mono">${rob} mt</span>
       <div class="bar ${sh.hull<0.6?"bad":sh.hull<0.78?"warn":"pos"}" style="flex:1;max-width:52px"><i style="width:${pc(sh.hull)}"></i></div>
       <span class="mono">hull</span>
-      ${!v?`<button class="btn sm" style="margin-left:auto;min-height:30px;padding:0 10px"
+      ${!v?`<button class="btn sm" style="margin-left:auto;padding:0 12px"
         onclick="event.stopPropagation();sheetBunker(${sh.id})">Bunker</button>`:""}
     </div>`:""}
   </div>`;
@@ -4514,7 +4605,9 @@ function vCharter(){
 
   if(!charterShip || !idle.find(s=>s.id===charterShip)) charterShip = idle[0].id;
   const sh = S.ships.find(s=>s.id===charterShip);
-  if(idle.length > 1) h += `<div class="seg">${idle.map(s=>
+  // Past three or four idle ships the picker stops being a segmented control and
+  // becomes a list, so it scrolls sideways rather than crushing every name.
+  if(idle.length > 1) h += `<div class="seg${idle.length>3?" scroll":""}">${idle.map(s=>
     `<button aria-selected="${s.id===charterShip}" onclick="charterShip=${s.id};dirty()">${esc(s.name.split(" ").slice(-1)[0])}</button>`).join("")}</div>`;
 
   const p = PORTS[sh.port];
@@ -4566,10 +4659,12 @@ function fixtureCard(sh, f, e){
     </div><div style="text-align:right;flex:none">
       <div class="lg b ${cls_pn(e.gvp)}">${money(e.gvp, e.gvp>0)}</div>
       <div class="xs mut2">${days1(e.days)}</div></div></div>
-    <div class="row" style="margin-top:9px;gap:5px;flex-wrap:wrap">${chips.join("")}
-      <button class="btn pri sm" style="margin-left:auto" onclick="event.stopPropagation();doFix(${sh.id},'${f.id}')">Fix</button></div>
-    <div class="xs mut2" style="margin-top:6px">Onward cargo from ${esc(dp.name)}: ${
-      liq>0.75?"strong":liq>0.5?"moderate":liq>0.3?"thin":'<span class="haz">very thin</span>'}</div>
+    <div class="row" style="margin-top:9px;gap:5px;flex-wrap:wrap">${chips.join("")}</div>
+    <div class="between" style="margin-top:9px;gap:10px">
+      <div class="xs mut2 grow">Onward cargo from ${esc(dp.name)}: ${
+        liq>0.75?"strong":liq>0.5?"moderate":liq>0.3?"thin":'<span class="haz">very thin</span>'}</div>
+      <button class="btn pri sm" style="flex:none" onclick="event.stopPropagation();doFix(${sh.id},'${f.id}')">Fix</button>
+    </div>
   </div>`;
 }
 
@@ -4602,14 +4697,14 @@ function renderFixtureSheet(sh, f, sp){
 
   if(has("speed")){
     h += `<h2 class="sect" style="margin-top:0">Speed</h2><div class="card" style="margin:0">
-      <div class="between"><div class="b mono">${sp.toFixed(2)} kn</div>
+      <div class="between"><div class="b mono">${kn(sp)}</div>
         <div class="xs mut">${burnAt(cls,sp,true).toFixed(1)} mt/d laden</div></div>
       <input type="range" min="${cls.minSpeed}" max="${cls.maxSpeed}" step="0.25" value="${sp}"
         oninput="fxSpeed['${f.id}']=+this.value;${rr},+this.value)">
       <div class="row xs mut2"><span>${cls.minSpeed} kn slow</span><span style="margin-left:auto">${cls.maxSpeed} kn full</span></div>
       ${opt?`<div class="between xs" style="margin-top:8px;padding-top:8px;border-top:1px solid var(--line)">
         <span class="mut">Best TCE here</span>
-        <button class="btn sm" style="min-height:30px" onclick="fxSpeed['${f.id}']=${opt.speed};${rr},${opt.speed})">${opt.speed} kn → ${money(opt.tce)}/d</button></div>`:""}
+        <button class="btn sm" onclick="fxSpeed['${f.id}']=${opt.speed};${rr},${opt.speed})">${opt.speed} kn → ${money(opt.tce)}/d</button></div>`:""}
     </div>`;
   }
 
@@ -4618,7 +4713,7 @@ function renderFixtureSheet(sh, f, sp){
     const viaCanal = Object.keys(e.canals).length > 0;
     h += `<h2 class="sect">Routing</h2><div class="card" style="margin:0">
       ${kv("Via "+(viaCanal?Object.keys(e.canals).map(c=>CFG.CANAL[c].name).join(" + "):"the Cape"), nm0(e.balNm+e.ladNm))}
-      ${kv("Canal tolls", e.tollCost?"−"+money0(e.tollCost):"none", e.tollCost?"neg":"")}
+      ${kv("Canal tolls", e.tollCost?cost0(e.tollCost):"none", e.tollCost?"neg":"")}
       ${kv("All-Cape alternative", nm0(e.altNm)+` · +${days1((e.altNm-(e.balNm+e.ladNm))/Math.max(1,e.speed)/24)}`)}
       <div class="row" style="gap:6px;margin-top:9px">
         <button class="btn sm" onclick="f_route('${f.id}',null);${rr},${sp})" ${!f.avoidCanals?'style="border-color:var(--acc)"':""}>Use canal</button>
@@ -4631,7 +4726,7 @@ function renderFixtureSheet(sh, f, sp){
 
   if(e.warZones.length){
     h += `<h2 class="sect">War risk</h2><div class="card" style="margin:0;border-color:var(--haz)">
-      ${e.warZones.map(z=>kv(esc(z.name), "−"+money0(z.cost), "neg")).join("")}
+      ${e.warZones.map(z=>kv(esc(z.name), cost0(z.cost), "neg")).join("")}
       <div class="row" style="gap:6px;margin-top:8px">
         <button class="btn sm" onclick="f_guards('${f.id}');${rr},${sp})" ${f.guards?'style="border-color:var(--acc)"':""}>
           ${f.guards?"Guards embarked":"Embark armed guards"}</button></div>
@@ -4652,26 +4747,26 @@ function renderFixtureSheet(sh, f, sp){
 
   h += `<h2 class="sect">Voyage result</h2><div class="card" style="margin:0">
     ${kv(`Freight — ${Math.round(e.qtyOut).toLocaleString()} ${e.unit}${f.ws?` @ WS ${f.ws} of $${f.flat.toFixed(2)}`:` × $${f.rate.toFixed(2)}`}`, money0(e.gross))}
-    ${kv(T("addcomm","Commissions")+" 3.75%", "−"+money0(e.comm), "neg")}
+    ${kv(T("addcomm","Commissions")+" 3.75%", cost0(e.comm), "neg")}
     ${kv("Net freight", money0(e.net))}
-    ${e.bunkerLines.map(b=>kv(T(b.grade,CFG.FUEL[b.grade].name)+` ${Math.round(b.mt)} mt @ $${b.px}`, "−"+money0(b.cost), "neg")).join("")}
-    ${kv(T("da","Port disbursements")+" — "+esc(lp.name), "−"+money0(e.daLoad), "neg")}
-    ${kv("Port disbursements — "+esc(dp.name), "−"+money0(e.daDisch), "neg")}
-    ${e.tollCost?kv("Canal tolls", "−"+money0(e.tollCost), "neg"):""}
-    ${e.warCost?kv(T("warrisk","War risk"), "−"+money0(e.warCost), "neg"):""}
-    ${e.ets.cost>1?kv(T("ets","EU ETS")+` — ${Math.round(e.ets.co2)} t CO₂ @ ${pc(e.euScope)}`, "−"+money0(e.ets.cost), "neg"):""}
-    ${e.feu.cost>1?kv(T("fueleu","FuelEU"), "−"+money0(e.feu.cost), "neg"):""}
+    ${e.bunkerLines.map(b=>kv(T(b.grade,CFG.FUEL[b.grade].name)+` ${Math.round(b.mt)} mt @ $${b.px}`, cost0(b.cost), "neg")).join("")}
+    ${kv(T("da","Port disbursements")+" — "+esc(lp.name), cost0(e.daLoad), "neg")}
+    ${kv("Port disbursements — "+esc(dp.name), cost0(e.daDisch), "neg")}
+    ${e.tollCost?kv("Canal tolls", cost0(e.tollCost), "neg"):""}
+    ${e.warCost?kv(T("warrisk","War risk"), cost0(e.warCost), "neg"):""}
+    ${e.ets.cost>1?kv(T("ets","EU ETS")+` — ${Math.round(e.ets.co2)} t CO₂ @ ${pc(e.euScope)}`, cost0(e.ets.cost), "neg"):""}
+    ${e.feu.cost>1?kv(T("fueleu","FuelEU"), cost0(e.feu.cost), "neg"):""}
     ${has("demurrage")&&Math.abs(e.demurrage)>100?kv(e.overrun>0?T("demurrage","Demurrage")+" "+days1(e.overrun):T("despatch","Despatch")+" "+days1(-e.overrun),
         (e.demurrage>0?"+":"−")+money0(Math.abs(e.demurrage)), e.demurrage>0?"pos":"neg"):""}
     ${kvt("Gross voyage profit", money0(e.gvp), cls_pn(e.gvp))}
-    ${kv(T("opex","OPEX")+" "+days1(e.days), "−"+money0(e.opex), "neg")}
+    ${kv(T("opex","OPEX")+" "+days1(e.days), cost0(e.opex), "neg")}
     ${kvt("Net contribution", money0(e.netCash), cls_pn(e.netCash))}</div>`;
 
   const short = e.wcap > S.cash;
   h += `<h2 class="sect">Cash flow</h2><div class="card" style="margin:0${short?";border-color:var(--neg)":""}">
     ${kvs("Freight terms", `${pc(CFG.FREIGHT_ON_BL)} against the ${T("blading","bill of lading")}, balance on delivery`)}
     ${kv("Advance arrives", money0(e.advance)+" on day "+(Math.round(e.preDays*10)/10))}
-    ${e.stemCost>1?kv("Fuel to buy at the load port", "−"+money0(e.stemCost)+", same day", "neg"):kv("Fuel to buy", "none — she has enough aboard", "pos")}
+    ${e.stemCost>1?kv("Fuel to buy at the load port", cost0(e.stemCost)+", same day", "neg"):kv("Fuel to buy", "none — she has enough aboard", "pos")}
     ${kvt("Net when she loads", money(e.advance-e.stemCost, e.advance-e.stemCost>0), cls_pn(e.advance-e.stemCost))}
     ${kv(T("wcap","Cash to fund until then"), money0(e.wcap), short?"neg":"")}
     ${kv("You have", money(S.cash), short?"neg":"pos")}
@@ -4745,8 +4840,8 @@ function sheetTc(shipId, offerId){
       <div class="sm mut">${o.days} days · ${money(o.rate*o.days)} gross</div></div>
      <div class="card" style="margin:0">
       ${kv("Hire, net of 3.75% commission", money0(o.rate*(1-CFG.TC.addComm))+"/day")}
-      ${kv(T("opex","OPEX"), bb?"Charterer's account":"−"+money0(opex)+"/day", bb?"pos":"neg")}
-      ${debt?kv("Debt service", "−"+money0(debt)+"/day", "neg"):""}
+      ${kv(T("opex","OPEX"), bb?"Charterer's account":cost0(opex)+"/day", bb?"pos":"neg")}
+      ${debt?kv("Debt service", cost0(debt)+"/day", "neg"):""}
       ${kvt("Net to you", money0(o.rate*(1-CFG.TC.addComm) - (bb?0:opex) - debt)+"/day")}
      </div>
      <div class="card" style="margin-top:12px">
@@ -4767,7 +4862,7 @@ function sheetDayrate(shipId, offerId){
       <div class="sm mut">${o.days} days · ${money(o.rate*o.days)}</div></div>
      <div class="card" style="margin:0">
       ${kv("Base port", esc(PORTS[o.base].name))}
-      ${kv(T("opex","OPEX"), "−"+money0(opex)+"/day", "neg")}
+      ${kv(T("opex","OPEX"), cost0(opex)+"/day", "neg")}
       ${kvt("Net", money0(o.rate*(1-CFG.TC.addComm)-opex)+"/day")}
       ${o.war?kv("Area", "War risk area — premium applies", "haz"):""}
      </div>
@@ -4885,7 +4980,7 @@ function renderLaneBuild(){
     <div class="xs mut2" style="margin-top:6px">ceil(${plan.rot.roundDays.toFixed(1)} ÷ ${bld.freq}) + ${bld.buffer} buffer</div></div>`;
 
   h += `<h2 class="sect" style="margin-top:0">Service speed</h2><div class="card" style="margin:0">
-    <div class="between"><div class="b mono">${bld.speed.toFixed(1)} kn</div>
+    <div class="between"><div class="b mono">${kn(bld.speed)}</div>
       <div class="xs mut">${plan.perShipBurn.toFixed(0)} mt/d each · <b>${plan.fleetBurnPerDay.toFixed(0)} mt/d fleet</b></div></div>
     <input type="range" min="${CLASSES[bld.cls].minSpeed}" max="${CLASSES[bld.cls].maxSpeed}" step="0.5" value="${bld.speed}"
       oninput="bld.speed=+this.value;renderLaneBuild()">
@@ -4910,13 +5005,13 @@ function renderLaneBuild(){
     ${kv(T("headhaul","Headhaul"), Math.round(plan.hhTeu).toLocaleString()+" TEU @ $"+Math.round(plan.hhRate))}
     ${kv("Backhaul", Math.round(plan.bhTeu).toLocaleString()+" TEU @ $"+Math.round(plan.bhRate))}
     ${kv("Freight", money0(plan.freightPerSailing))}
-    ${kv(T("bunkers","Bunkers"), "−"+money0(plan.bunkerCost), "neg")}
-    ${kv(T("thc","Terminal handling"), "−"+money0(plan.thc), "neg")}
-    ${kv("Port disbursements", "−"+money0(plan.daCost), "neg")}
-    ${plan.tolls?kv("Canal tolls", "−"+money0(plan.tolls), "neg"):""}
-    ${kv("Empty repositioning", "−"+money0(plan.emptyCost), "neg")}
-    ${plan.carbon?kv(T("ets","EU ETS"), "−"+money0(plan.carbon), "neg"):""}
-    ${kv("Boxes, inland, network", "−"+money0(plan.overhead), "neg")}
+    ${kv(T("bunkers","Bunkers"), cost0(plan.bunkerCost), "neg")}
+    ${kv(T("thc","Terminal handling"), cost0(plan.thc), "neg")}
+    ${kv("Port disbursements", cost0(plan.daCost), "neg")}
+    ${plan.tolls?kv("Canal tolls", cost0(plan.tolls), "neg"):""}
+    ${kv("Empty repositioning", cost0(plan.emptyCost), "neg")}
+    ${plan.carbon?kv(T("ets","EU ETS"), cost0(plan.carbon), "neg"):""}
+    ${kv("Boxes, inland, network", cost0(plan.overhead), "neg")}
     ${kvt("EBIT per year", money(plan.ebitYear), cls_pn(plan.ebitYear))}
     ${kv("Per ship per day", perDay(plan.ebitPerShipDay), cls_pn(plan.ebitPerShipDay))}
   </div>`;
@@ -4956,7 +5051,7 @@ function sheetService(id){
       ${kv("Round voyage", p?days1(p.rot.roundDays):"—")}
       ${p?kv("Fill", `${Math.round(p.hhFill*100)}% headhaul / ${Math.round(p.bhFill*100)}% back`):""}
       ${kv("Revenue to date", money(svc.rev))}
-      ${kv("Cost to date", "−"+money(svc.cost), "neg")}
+      ${kv("Cost to date", cost(svc.cost), "neg")}
      </div>
      <div class="card" style="margin-top:12px">
       <div class="sm mut">${T("headhaul","The trade runs full one way and half empty the other")}, and the boxes pile up at the wrong end. Empty repositioning is the price of that imbalance and it never goes away.</div></div>
@@ -5137,8 +5232,8 @@ function sheetSell(shipId){
   showSheet("Sell "+esc(sh.name), CLASSES[sh.cls].name+" · "+shipAge(sh)+" years",
     `<div class="card" style="margin:0">
       ${kv("Best bid", money(bid))}
-      ${kv("Brokerage", "−"+money0(bid*CFG.SNP.brokerage), "neg")}
-      ${debt?kv("Mortgage to repay", "−"+money(debt), "neg"):""}
+      ${kv("Brokerage", cost0(bid*CFG.SNP.brokerage), "neg")}
+      ${debt?kv("Mortgage to repay", cost(debt), "neg"):""}
       ${kvt("Net proceeds", money(bid-bid*CFG.SNP.brokerage-debt), cls_pn(bid-bid*CFG.SNP.brokerage-debt))}
      </div>
      <div class="card" style="margin-top:12px">
@@ -5247,36 +5342,41 @@ function vCompany(){
     ${kv("Cash", money(S.cash), cls_pn(S.cash))}
     ${kv("Fleet market value", money(assets))}
     ${S.orders.length?kv("Newbuild deposits paid", money(S.orders.reduce((a,o)=>a+o.paid,0))):""}
-    ${kv("Debt", "−"+money(debt), "neg")}
+    ${kv("Debt", cost(debt), "neg")}
     ${kvt("Net equity", money(eq), cls_pn(eq))}
     ${debt>0?kv(T("ltv","LTV"), pc(debt/Math.max(1,assets)), debt/assets>0.7?"haz":"")+kv("Credit rating", S.rating):""}
     ${debt>0||S.ships.some(s=>s.lease)?`<div class="between" style="margin-top:9px;padding-top:9px;border-top:1px solid var(--line)">
       <span class="sm mut">Debt service ${money0(debtServiceDay()+leaseCostDay())}/day</span>
-      <button class="btn sm" style="flex:none;min-height:32px" onclick="coSub('bank')">Bank →</button></div>`:""}
+      <button class="btn sm" style="flex:none" onclick="coSub('bank')">Bank →</button></div>`:""}
   </div>`;
 
+  // A line only appears once it has something on it. At the start of a run that
+  // leaves an almost-empty statement, which is the truth — a wall of "$0" rows
+  // is noise the player has to read past every time.
+  const pnl = (lbl, v, c)=> Math.abs(v||0) > 0.5 ? kv(lbl, cost(v), c||"neg") : "";
   h += `<h2 class="sect">Profit &amp; loss — to date</h2><div class="card">
     ${L.freight?kv("Net freight", money(L.freight)):""}
     ${L.hire?kv("Charter hire", money(L.hire)):""}
     ${L.liner?kv("Liner services", money(L.liner), cls_pn(L.liner)):""}
     ${Math.abs(L.demurrage)>100?kv(T("demurrage","Demurrage")+" net", money(L.demurrage,L.demurrage>0), cls_pn(L.demurrage)):""}
-    ${kv(T("bunkers","Bunkers"), "−"+money(L.bunkers), "neg")}
-    ${kv(T("da","Port disbursements"), "−"+money(L.portDA), "neg")}
-    ${L.tolls?kv("Canal tolls", "−"+money(L.tolls), "neg"):""}
-    ${L.war?kv(T("warrisk","War risk"), "−"+money(L.war), "neg"):""}
-    ${L.carbon?kv("Carbon", "−"+money(L.carbon), "neg"):""}
-    ${kv(T("opex","OPEX")+" — at sea", "−"+money(L.opex), "neg")}
-    ${kv("Shore organisation", "−"+money(L.shore||0), "neg")}
-    ${L.survey?kv("Surveys and drydock", "−"+money(L.survey), "neg"):""}
-    ${L.psc?kv(T("psc","PSC")+" deficiencies", "−"+money(L.psc), "neg"):""}
-    ${L.penalties?kv("COA penalties", "−"+money(L.penalties), "neg"):""}
-    ${kv("Interest", "−"+money(L.interest), "neg")}
-    ${L.fees?kv("Bank fees", "−"+money(L.fees), "neg"):""}
-    ${L.lease?kv(T("leaseback","Bareboat hire in"), "−"+money(L.lease), "neg"):""}
-    ${L.tax?kv("Tax", "−"+money(L.tax), "neg"):""}
+    ${pnl(T("bunkers","Bunkers"), L.bunkers)}
+    ${pnl(T("da","Port disbursements"), L.portDA)}
+    ${pnl("Canal tolls", L.tolls)}
+    ${pnl(T("warrisk","War risk"), L.war)}
+    ${pnl("Carbon", L.carbon)}
+    ${pnl(T("opex","OPEX")+" — at sea", L.opex)}
+    ${pnl("Shore organisation", L.shore)}
+    ${pnl("Surveys and drydock", L.survey)}
+    ${pnl(T("psc","PSC")+" deficiencies", L.psc)}
+    ${pnl("COA penalties", L.penalties)}
+    ${pnl("Interest", L.interest)}
+    ${pnl("Bank fees", L.fees)}
+    ${pnl(T("leaseback","Bareboat hire in"), L.lease)}
+    ${pnl("Tax", L.tax)}
     ${Math.abs(L.derivatives)>100?kv("Derivatives", money(-L.derivatives, -L.derivatives>0), cls_pn(-L.derivatives)):""}
     ${kvt("Result", money(result), cls_pn(result))}
-    ${kv("Principal repaid", "−"+money(L.principal), "mut")}
+    ${pnl("Principal repaid", L.principal, "mut")}
+    ${Math.abs(result)<0.5?`<div class="xs mut2" style="margin-top:7px">Nothing has been earned or spent yet. Every line appears here as soon as it has something on it.</div>`:""}
   </div>`;
 
   h += `<h2 class="sect">Fleet KPIs</h2><div class="card">
@@ -6445,7 +6545,7 @@ function renderMortgage(shipId){
      </div>
      <h2 class="sect">Terms</h2><div class="card" style="margin:0">
       ${kvs("Rate", pc(rate) + " — base " + pc(CFG.FIN.rateBase) + " plus " + pc(rate-CFG.FIN.rateBase) + " margin at rating " + S.rating)}
-      ${kv("Arrangement fee", "−"+money0(bankAmt*CFG.BANK.arrangement), "neg")}
+      ${kv("Arrangement fee", cost0(bankAmt*CFG.BANK.arrangement), "neg")}
       ${kvt("Cash to you", money(bankAmt*(1-CFG.BANK.arrangement)), "pos")}
       <div style="height:9px"></div>
       ${kv("Monthly instalment", money0(mortInstal(bankAmt, rate, mortTerm)), "neg")}
@@ -6491,7 +6591,7 @@ function sheetRcf(){
       ${kv("Commitment fee on undrawn", (CFG.BANK.rcf.commitment*100).toFixed(2)+"% a year")}
       ${kv("If you never draw it", money0(lim*CFG.BANK.rcf.commitment/365)+"/day")}
       ${kv("If fully drawn", money0(lim*rate/365)+"/day")}
-      ${kv("Arrangement fee now", "−"+money0(fee), "neg")}
+      ${kv("Arrangement fee now", cost0(fee), "neg")}
       ${kvs("Repayment", "Interest only — the principal sits there until you repay it")}
      </div>
      <div class="xs mut2" style="margin-top:10px">The limit is reviewed against your balance sheet, so it grows with the fleet and shrinks in a downturn — precisely when you would want it most. That is not a bug in the design of shipping finance, it is the design.</div>`,
@@ -6577,7 +6677,7 @@ function renderCorp(){
           onclick="corpTerm=${t};renderCorp()">${t} mo</button>`).join("")}</div></div>
      <div class="card" style="margin:0">
       ${kv("Monthly instalment", money0(instal), "neg")}
-      ${kv("Arrangement fee", "−"+money0(bankAmt*CFG.BANK.arrangement), "neg")}
+      ${kv("Arrangement fee", cost0(bankAmt*CFG.BANK.arrangement), "neg")}
       ${kvt("Cash to you", money(bankAmt*(1-CFG.BANK.arrangement)), "pos")}
       ${kv("Total cost of the money", money0(bankAmt*rate*corpTerm/12/2*1.05+bankAmt*CFG.BANK.arrangement))}
      </div>
@@ -6642,7 +6742,7 @@ function renderPrepay(id){
         ${[0.5,1].map(f=>`<button class="btn sm grow" onclick="bankAmt=${Math.round(max*f)};renderPrepay('${id}')">${f===1?"All I can":"Half"}</button>`).join("")}
       </div></div>
      <div class="card" style="margin:0">
-      ${kv("Breakage fee", "−"+money0(fee)+" ("+pc(CFG.BANK.breakage)+")", "neg")}
+      ${kv("Breakage fee", cost0(fee)+" ("+pc(CFG.BANK.breakage)+")", "neg")}
       ${kvt("Cash out", money(bankAmt+fee), "neg")}
       ${kv("Interest saved", money0(bankAmt*l.rate/365)+"/day", "pos")}
       ${kv("Instalment after", money0(Math.max(0,loanDue(l).total - bankAmt*l.rate*CFG.BANK.period/365 - (l.amort?Math.min(l.amort, bankAmt/Math.max(1,l.principal)*l.amort):0)))+"/mo")}
@@ -6688,8 +6788,8 @@ function renderRefi(id){
      <div class="card" style="margin:0">
       ${kv("Old rate", pc(l.rate))}
       ${kv("New rate", pc(rate), rate<l.rate?"pos":rate>l.rate?"neg":"")}
-      ${kv("Repay the old loan", "−"+money(owed), "neg")}
-      ${kv("Arrangement fee", "−"+money0(fee), "neg")}
+      ${kv("Repay the old loan", cost(owed), "neg")}
+      ${kv("Arrangement fee", cost0(fee), "neg")}
       ${kvt(net>=0?"Cash released":"Cash required", money(Math.abs(net)), net>=0?"pos":"neg")}
       ${kv("Instalment now", money0(loanDue(l).total)+"/mo")}
       ${kv("Instalment after", money0(mortInstal(bankAmt, rate, refiTerm))+"/mo")}
@@ -6826,7 +6926,7 @@ function sheetDebug(){
     `<div class="card" style="margin:0 0 10px">
       ${kv("Day", Math.round(S.day)+" — "+dateFull(S.day))}
       ${kv("Seed", S.seed)}
-      ${kv("Indices", Object.entries(S.mkt.idx).map(([k,v])=>k+" "+v.toFixed(0)).join("  "))}
+      ${kvs("Indices", Object.entries(S.mkt.idx).map(([k,v])=>k+" "+v.toFixed(0)).join(" · "))}
       ${kv("Oil factor", MKT.oil.toFixed(3))}
     </div>
     <h2 class="sect" style="margin-top:0">Cash</h2><div class="card" style="margin:0">
