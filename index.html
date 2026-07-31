@@ -363,8 +363,26 @@ const CFG = {
   // Index 100 == mid-cycle. Amplitude 0.55 gives a 45..155 band, which is a
   // fair likeness of how far dry bulk actually travels peak-to-trough.
   MKT: {
-    cycleDays: 1650,       // ~4.5yr wave
+    cycleDays: 1650,       // ~4.5yr wave — the long shipping cycle
+    // A single sine is a script, not a cycle: it puts the peak and the crash on
+    // the same day of every run. A second, shorter wave at an unrelated period
+    // breaks the pattern up, and both waves start at a phase drawn per run.
+    cycleDays2: 610,       // ~20mo secondary swing
+    longShare: 0.72,       // weight of the long wave in the combined swing
+    // Where a run joins the long cycle, in radians. Bounded so the opening is
+    // never a depression — the first voyages were calibrated around mid-cycle —
+    // but wide enough that the peak lands anywhere from day 85 to day 480 and
+    // the trough from roughly day 900 to day 1300.
+    phaseRange: [-0.25, 1.25],
     amp: 0.55,
+    // A sine spends as long at its extremes as anywhere else. Freight markets do
+    // not: they sit near normal and lurch, which is why "mid-cycle" is a useful
+    // word. Raising the swing to a power above 1 keeps the peak and the trough
+    // exactly as deep while cutting the time spent down there — the share of the
+    // cycle below index 70 falls from about 37% to 28%, and the deep-bust share
+    // from 20% to 13%. The bust still arrives and still hurts; it stops being
+    // six hundred days of the same answer.
+    shape: 1.35,
     ar: 0.965,             // AR(1) persistence of the noise term
     shock: 0.030,          // daily innovation sd
     min: 32, max: 260,
@@ -739,11 +757,30 @@ Object.assign(CFG, {
     cii:        20,   // carbon intensity rating
     tanker:     30,   // wet cargo, Worldscale, vetting
     canal:      12,   // Suez and Panama tolls, or round the Cape
+    layup:      12,   // stop trading a ship the market will not pay for
     hedging:    38,   // FFAs and bunker swaps
     container:  42,   // boxship tonnage, chartered out
     special:    48,   // gas, car carriers, reefers, project, offshore, aqua
     liner:      55,   // run your own service
     bareboat:   34,
+  },
+
+  /* --- lay-up -------------------------------------------------------------
+     When the market will not pay OPEX, an owner stops trading the ship. Warm
+     lay-up keeps a skeleton crew aboard, machinery turning and class in date:
+     running cost falls to about 40%, and she can be back on the berth inside a
+     week. It is the standard answer to a bust and it is a decision, not a
+     punishment — you give up all upside for as long as you are laid up, and if
+     you call the recovery wrong you are the last owner back to work.
+  ------------------------------------------------------------------------- */
+  LAYUP: {
+    opexShare: 0.42,      // share of full OPEX a warm lay-up still costs
+    inDays: 2,            // to lay her up: de-storing, crew off, berth
+    outDays: 5,           // and to reactivate: crew, stores, class attendance
+    outCost: 0.9,         // reactivation cost as a multiple of one day's OPEX × outDays
+    berthPerGtDay: 0.004, // lay-up berth hire
+    hullDecay: 1.7,       // idle steel deteriorates faster than working steel
+    unlockVoyages: 12,
   },
 
   /* --- surveys and drydock ----------------------------------------------- */
@@ -1464,6 +1501,7 @@ Object.assign(GLOSSARY, {
   string:    ["String", "The set of ships needed to keep a service running at a fixed frequency. Round voyage days divided by frequency: a weekly Asia–Europe loop needs eleven or twelve ships."],
   reliability:["Schedule reliability", "The share of your port calls that arrive on the advertised day. Delay propagates round the loop, so buffer days in the rotation are the only real defence."],
   slotshare: ["Slot charter", "Selling space on your service to another operator, or buying theirs. Steady income without the cargo risk, and the reason alliances exist."],
+  layup:     ["Lay-up", "Taking a ship out of service when the market will not cover her running costs. A warm lay-up keeps a skeleton crew and class in date at about 40% of full OPEX; she earns nothing, and it takes days and money to bring her back."],
   covenant:  ["Covenant", "A promise to your lender — typically that debt stays under 80% of the ship's value and that you hold minimum cash. Break it and the loan becomes repayable on demand."],
 });
 /* ############################################################################
@@ -1741,10 +1779,19 @@ function euScope(loadPort, dischPort){
 function newMarket(seed){
   const rnd = mulberry(seed);
   const m = { rnd, oil:1.0, oilNoise:0, idx:{}, hist:{}, lastHist:0 };
+  // WHERE THIS RUN JOINS THE CYCLE. Drawn once, from the seed, and shared by
+  // every segment so they stay correlated. IDX_PHASE0 then offsets each segment
+  // against that common starting point — Capesize turns before Handysize, boxes
+  // swing on their own schedule — which is the part that is genuinely structural
+  // and so is genuinely constant.
+  const [lo, hi] = CFG.MKT.phaseRange;
+  const p0 = lo + rnd()*(hi - lo);
+  const q0 = rnd()*2*Math.PI;
   // Every index needs a phase and an amplitude; IDX_PHASE0/IDX_AMP cover all of
   // them, and the fallbacks make a newly added segment safe by construction.
   for(const k of Object.keys(INDEX_META)){
-    m.idx[k] = { v:CFG.MKT.startIndex, phase:IDX_PHASE0[k] ?? 0, noise:0,
+    const off = IDX_PHASE0[k] ?? 0;
+    m.idx[k] = { v:CFG.MKT.startIndex, phase:p0 + off, phase2:q0 + off*1.7, noise:0,
                  amp:(IDX_AMP[k] ?? 1) * CFG.MKT.amp };
     m.hist[k] = [];
   }
@@ -1762,8 +1809,15 @@ function stepMarket(m, dt, day){
 
   for(const k of Object.keys(m.idx)){
     const s = m.idx[k];
-    s.phase += (2*Math.PI/K.cycleDays) * dt;
-    const wave = 1 + (s.amp ?? K.amp) * Math.sin(s.phase);
+    if(s.phase2 === undefined) s.phase2 = 0;      // markets saved before the second wave
+    s.phase  += (2*Math.PI/K.cycleDays)  * dt;
+    s.phase2 += (2*Math.PI/K.cycleDays2) * dt;
+    // Two waves of unrelated period. Same peak-to-trough range as one sine, but
+    // the path between them is irregular, so a falling market is not a straight
+    // line down for six hundred days and a recovery can start early.
+    const raw = K.longShare*Math.sin(s.phase) + (1-K.longShare)*Math.sin(s.phase2);
+    const swing = Math.sign(raw) * Math.pow(Math.abs(raw), K.shape || 1);
+    const wave = 1 + (s.amp ?? K.amp) * swing;
     // 55% shared innovation, 45% idiosyncratic — segments correlate, not couple.
     const inno = common*0.55 + gauss(m.rnd)*K.shock*Math.sqrt(dt)*0.45;
     s.noise = s.noise*Math.pow(K.ar, dt) + inno;
@@ -2333,6 +2387,10 @@ function load(raw){
   MKT.oil = d.mkt.oil; MKT.oilNoise = d.mkt.oilNoise;
   MKT.idx = d.mkt.idx; MKT.hist = d.mkt.hist; MKT.lastHist = d.mkt.lastHist;
   MKT.seed = d.mkt.seed;
+  // Markets saved before the second cycle wave existed carry no phase2, and an
+  // undefined phase would turn every index into NaN on the first tick.
+  for(const k of Object.keys(MKT.idx)) if(MKT.idx[k].phase2 === undefined)
+    MKT.idx[k].phase2 = (IDX_PHASE0[k] ?? 0) * 1.7;
   // Advance the PRNG so subsequent draws are not a replay of the first ones.
   for(let i=0;i<((S.day|0)*3);i++) MKT.rnd();
   snapshotMarket();
@@ -2537,8 +2595,11 @@ function costBaseDay(){
   let c = 0;
   for(const sh of S.ships){
     const emp = sh.emp || { type:"spot" };
-    if(emp.type !== "bb" && emp.type !== "liner")
-      c += opexDayFull(shipCls(sh), shipAge(sh), sh);
+    if(emp.type !== "bb" && emp.type !== "liner"){
+      const laid = sh.layup && sh.layup.state === "laid";
+      c += opexDayFull(shipCls(sh), shipAge(sh), sh) * (laid ? CFG.LAYUP.opexShare : 1);
+      if(laid) c += CLASSES[sh.cls].gt * CFG.LAYUP.berthPerGtDay;
+    }
     c += CLASSES[sh.cls].gt * FLAGS[sh.flag||"marshall"].feePerGt / 365;
     if(sh.lease) c += sh.lease.daily;
   }
@@ -2561,9 +2622,11 @@ function earnDay(){
   return e;
 }
 const netPerDay = ()=> earnDay() - costBaseDay();
+/* Utilisation is the share of the fleet actually earning. Laid-up tonnage counts
+   against you — it is idle by choice, but it is still idle. */
 function utilisation(){
   if(!S.ships.length) return 0;
-  return S.ships.filter(s=>s.status!=="idle").length / S.ships.length;
+  return S.ships.filter(s=>s.status!=="idle" && !s.layup).length / S.ships.length;
 }
 
 /* ==========================================================================
@@ -3198,9 +3261,10 @@ function stepSim(dt, quiet){
 
   for(const sh of S.ships){
     accrueDaily(sh, dt, quiet);
+    if(sh.layup) stepLayup(sh, dt, quiet);
     if(sh.dd) advanceDrydock(sh, dt, quiet);
     else if(sh.voyage) advanceVoyage(sh, dt, quiet);
-    else if(sh.status === "idle") maybeAutoEmploy(sh, quiet);
+    else if(sh.status === "idle" && !sh.layup) maybeAutoEmploy(sh, quiet);
   }
   for(const svc of S.services) accrueService(svc, dt);
   accrueShore(dt);
@@ -3252,7 +3316,12 @@ function accrueDaily(sh, dt, quiet){
   // Liner: the service's own economics already carry OPEX for its whole string
   // (linerPlan's opexYear), so charging it again here would be double counting.
   if(emp.type !== "bb" && emp.type !== "liner"){
-    const opex = opexDayFull(cls, shipAge(sh), sh) * dt;
+    // A laid-up ship still costs money — skeleton crew, class, insurance and the
+    // berth — but far less than a trading one. That is the whole point of it.
+    const share = sh.layup && sh.layup.state === "laid" ? CFG.LAYUP.opexShare : 1;
+    const berth = sh.layup && sh.layup.state === "laid"
+      ? CLASSES[sh.cls].gt * CFG.LAYUP.berthPerGtDay : 0;
+    const opex = (opexDayFull(cls, shipAge(sh), sh)*share + berth) * dt;
     S.cash -= opex; S.ledger.opex += opex;
   }
   // Registry fee
@@ -3280,9 +3349,61 @@ function accrueDaily(sh, dt, quiet){
     S.cash -= hire; S.ledger.lease = (S.ledger.lease||0) + hire;
     sh.lease.paid = (sh.lease.paid||0) + hire;
   }
-  // Working the ship wears her; drydock puts it back.
-  if(sh.status !== "idle" && !sh.dd)
+  // Working the ship wears her; drydock puts it back. Lying idle at a lay-up
+  // berth wears her faster still — steel that is not being maintained under way
+  // is steel nobody is looking at.
+  if(sh.layup && sh.layup.state === "laid")
+    sh.hull = clamp(sh.hull - 0.000045*CFG.LAYUP.hullDecay*dt*shoreFx("hullDecayMult"), 0.35, 1);
+  else if(sh.status !== "idle" && !sh.dd)
     sh.hull = clamp(sh.hull - 0.000045*dt*shoreFx("hullDecayMult"), 0.35, 1);
+}
+
+/* ==========================================================================
+   LAY-UP
+   Two transitions, each with a real duration, so the decision is a bet on the
+   market rather than a switch. Going in is quick and cheap; coming out takes a
+   working week and costs money, which is exactly why an owner who calls the
+   recovery late arrives after the rates have gone.
+   ========================================================================= */
+function layupCost(sh){
+  return opexDayFull(shipCls(sh), shipAge(sh), sh) * CFG.LAYUP.outDays * CFG.LAYUP.outCost;
+}
+function layupSavingDay(sh){
+  const full = opexDayFull(shipCls(sh), shipAge(sh), sh);
+  return full*(1 - CFG.LAYUP.opexShare) - CLASSES[sh.cls].gt*CFG.LAYUP.berthPerGtDay;
+}
+function layUp(shipId){
+  const sh = S.ships.find(s=>s.id===shipId); if(!sh) return;
+  if(sh.voyage || sh.dd){ toast("She is not free.", "bad"); return; }
+  if(sh.emp && sh.emp.type !== "spot"){ toast("She is on charter. Wait for redelivery.", "bad"); return; }
+  sh.layup = { state:"going", left:CFG.LAYUP.inDays, since:S.day, port:sh.port };
+  sh.status = "layup";
+  hideSheet(); dirty();
+  toast(`<b>${esc(sh.name)}</b> is going into warm lay-up — ${money0(layupSavingDay(sh))}/day saved, and nothing earned until she is back.`, "warn");
+}
+function reactivate(shipId){
+  const sh = S.ships.find(s=>s.id===shipId); if(!sh || !sh.layup) return;
+  const c = layupCost(sh);
+  if(c > S.cash){ toast(`Reactivation costs ${money(c)} and you do not have it.`, "bad"); return; }
+  S.cash -= c; S.ledger.opex += c;
+  sh.layup.state = "coming"; sh.layup.left = CFG.LAYUP.outDays;
+  hideSheet(); dirty();
+  toast(`Reactivating <b>${esc(sh.name)}</b> — ${money(c)} for crew, stores and class. Back on the berth in ${CFG.LAYUP.outDays} days.`, "");
+}
+/* Advance the two transitions. Called once per tick per ship. */
+function stepLayup(sh, dt, quiet){
+  const L = sh.layup; if(!L || L.state === "laid") return;
+  L.left -= dt;
+  if(L.left > 0) return;
+  if(L.state === "going"){
+    L.state = "laid"; L.left = 0; sh.status = "layup";
+  } else {
+    const days = Math.round(S.day - L.since);
+    sh.layup = null; sh.status = "idle";
+    if(!quiet) queueNote("Back in service",
+      `<b>${esc(sh.name)}</b> is out of lay-up and open at ${esc(PORTS[sh.port].name)} after ${days} days.
+       Find her a cargo — she is costing full running money again from today.`, "good");
+  }
 }
 
 /* ==========================================================================
@@ -3501,6 +3622,10 @@ function checkSurvey(sh, quiet){
   sh.surveyDue = nx;
   if(S.day < nx.due) return;
   if(sh.voyage) return;                      // finish the voyage first
+  // A laid-up ship is not trading, so class is content to let the survey wait
+  // until she is reactivated. Drydocking a ship you have stopped paying to run
+  // would be the opposite of the point.
+  if(sh.layup) return;
   if(S.day < nx.due + CFG.SURVEY.deferDays && sh.deferRequested === nx.due) return;
   startDrydock(sh, nx.type, quiet);
 }
@@ -3662,7 +3787,7 @@ function offersForShip(sh){
    rebuilt on a timer, so a ship that discharged just after a refresh sat with an
    empty board — and paid OPEX for every day of it. */
 function ensureBoard(sh){
-  if(!sh || sh.dd || sh.voyage) return;
+  if(!sh || sh.dd || sh.voyage || sh.layup) return;
   if(sh.emp && sh.emp.type !== "spot") return;
   topUpBoard(sh);
   offersForShip(sh);
@@ -3670,7 +3795,7 @@ function ensureBoard(sh){
 
 function refreshBoard(force){
   S.fixturesStamp = S.day;
-  const idle = S.ships.filter(s => s.status === "idle" && !s.dd && (!s.emp || s.emp.type === "spot"));
+  const idle = S.ships.filter(s => s.status === "idle" && !s.dd && !s.layup && (!s.emp || s.emp.type === "spot"));
   const idleIds = new Set(idle.map(s=>s.id));
   // Keep what the player may be part-way through reading; drop what has lapsed
   // or belongs to a ship no longer open.
@@ -4309,6 +4434,8 @@ function ciiPill(sh){
 }
 function empLabel(sh){
   const e = sh.emp || { type:"spot" };
+  if(sh.layup) return sh.layup.state === "laid" ? "Laid up"
+    : sh.layup.state === "going" ? "Going into lay-up" : "Coming out of lay-up";
   if(e.type === "tc")      return `TC to ${e.charterer} · ${money0(e.rate)}/d`;
   if(e.type === "bb")      return `Bareboat to ${e.charterer} · ${money0(e.rate)}/d`;
   if(e.type === "dayrate") return `${e.charterer} · ${money0(e.rate)}/d`;
@@ -4384,7 +4511,9 @@ function positionCard(){
   const working = S.ships.filter(s=>s.status!=="idle").length;
   return `<h2 class="sect">Position</h2><div class="card">
     ${kv("Cost base", money0(base)+"/day", "neg")}
-    ${kv("Earning", earn>0.5 ? money0(earn)+"/day" : "nothing — every ship is idle", earn>0.5?"pos":"haz")}
+    ${kv("Earning", earn>0.5 ? money0(earn)+"/day"
+        : S.ships.some(s=>s.layup) ? "nothing — the fleet is laid up"
+        : "nothing — every ship is idle", earn>0.5?"pos":"haz")}
     ${kvt("Net", (net>0?"+":"")+money0(net)+"/day", cls_pn(net))}
     ${runway !== null
       ? kv("Cash lasts", runwayText(runway), runway < 45 ? "neg" : runway < 120 ? "haz" : "")
@@ -4409,7 +4538,15 @@ function shipCard(sh){
   const cls = shipCls(sh), v = sh.voyage, age = shipAge(sh);
   let pill, line2, prog = "";
 
-  if(sh.dd){
+  if(sh.layup){
+    const L = sh.layup;
+    pill = `<span class="pill">${L.state==="laid"?"Laid up":L.state==="going"?"Laying up":"Reactivating"}</span>`;
+    line2 = L.state === "laid"
+      ? `Laid up at ${esc(PORTS[L.port].name)} · ${days1(S.day-L.since)} · saving ${money0(layupSavingDay(sh))}/day`
+      : `${L.state==="going"?"Going into lay-up":"Coming out of lay-up"} · ${days1(Math.max(0,L.left))} remaining`;
+    if(L.state !== "laid") prog = `<div class="bar" style="margin-top:9px"><i style="width:${
+      pc(clamp(1-L.left/(L.state==="going"?CFG.LAYUP.inDays:CFG.LAYUP.outDays),0,1))}"></i></div>`;
+  } else if(sh.dd){
     pill = `<span class="pill warn">Drydock</span>`;
     line2 = `${sh.dd.type==="SS"?"Special survey":sh.dd.type==="IS"?"Intermediate survey":"Retrofit"} · ${days1(sh.dd.left)} remaining`;
     prog = `<div class="bar warn" style="margin-top:9px"><i style="width:${pc(1-sh.dd.left/sh.dd.days)}"></i></div>`;
@@ -4452,7 +4589,7 @@ function shipCard(sh){
       <span class="mono">${rob} mt</span>
       <div class="bar ${sh.hull<0.6?"bad":sh.hull<0.78?"warn":"pos"}" style="flex:1;max-width:52px"><i style="width:${pc(sh.hull)}"></i></div>
       <span class="mono">hull</span>
-      ${!v?`<button class="btn sm" style="margin-left:auto;padding:0 12px"
+      ${!v && !sh.layup?`<button class="btn sm" style="margin-left:auto;padding:0 12px"
         onclick="event.stopPropagation();sheetBunker(${sh.id})">Bunker</button>`:""}
     </div>`:""}
   </div>`;
@@ -4504,7 +4641,9 @@ function sheetShip(id){
 
   if(has("cii") || has("survey") || has("psc")){
     h += `<h2 class="sect">Class and compliance</h2><div class="card" style="margin:0">
-      ${has("cii")?kv(T("cii","CII rating"), `<span class="${sh.ciiRating==="E"?"neg":sh.ciiRating==="D"?"haz":"pos"}">${sh.ciiRating}</span> — ${T("aer","AER")} ${(sh.ciiAer||0).toFixed(2)} vs ${(sh.ciiReq||0).toFixed(2)} required`):""}
+      ${has("cii")?kv(T("cii","CII rating"), sh.cii && sh.cii.nm > 100
+        ? `<span class="${sh.ciiRating==="E"?"neg":sh.ciiRating==="D"?"haz":"pos"}">${sh.ciiRating}</span> — ${T("aer","AER")} ${(sh.ciiAer||0).toFixed(2)} vs ${(sh.ciiReq||0).toFixed(2)} required`
+        : `<span class="mut">No rating yet — she has not sailed this year</span>`):""}
       ${sh.capPlan?`<div class="xs haz" style="padding:4px 0">A corrective action plan is required. Charterers are already pricing her lower — retrofit or slow her down.</div>`:""}
       ${has("survey")?kv("Next "+(nx.type==="SS"?T("special","special survey"):"intermediate survey"),
           `${dateFull(nx.due)} · ${money(surveyCost(sh,nx.type))} · ${days1(surveyDays(sh,nx.type))}`):""}
@@ -4552,9 +4691,27 @@ function sheetShip(id){
     ${kv("Scrap value", money(scrapValue(sh.cls, MKT)))}
   </div>`;
 
+  // Lay-up gets its own block because in a bust it is the most important
+  // decision on the screen, and it needs its arithmetic shown.
+  if(sh.layup) h += layupCard(sh);
+  else if(has2("layup") && !sh.voyage && !sh.dd && (!sh.emp || sh.emp.type==="spot"))
+    h += `<h2 class="sect">${T("layup","Lay-up")}</h2><div class="card" style="margin:0">
+      ${kv("Running cost now", money0(opexDayFull(cls,age,sh))+"/day")}
+      ${kv("Laid up she would cost", money0(opexDayFull(cls,age,sh)*CFG.LAYUP.opexShare + cls.gt*CFG.LAYUP.berthPerGtDay)+"/day")}
+      ${kvt("Saving", money0(layupSavingDay(sh))+"/day", "pos")}
+      ${kv("Costs to bring her back", money(layupCost(sh))+" and "+CFG.LAYUP.outDays+" days", "neg")}
+      ${kv("Break-even", Math.ceil(layupCost(sh)/Math.max(1,layupSavingDay(sh)))+" days laid up")}
+      <div class="xs mut2" style="margin-top:7px">She earns nothing while she is down, and coming back takes ${CFG.LAYUP.outDays} days — so this is a bet on how long the market stays bad, not a free saving. Steel also deteriorates faster at a lay-up berth than under way.</div>
+      <button class="btn sm" style="width:100%;margin-top:10px" onclick="layUp(${sh.id})">Lay her up</button>
+    </div>`;
+
   const acts = [];
-  if(sh.status === "idle" && !sh.dd){
+  if(sh.status === "idle" && !sh.dd && !sh.layup){
     acts.push(`<button class="btn pri" onclick="hideSheet();goCharter(${sh.id})">Find employment</button>`);
+  }
+  if(sh.layup && sh.layup.state === "laid"){
+    acts.push(`<button class="btn pri" ${layupCost(sh)>S.cash?"disabled":""} onclick="reactivate(${sh.id})">
+      ${layupCost(sh)>S.cash?"Cannot afford reactivation":"Bring her back — "+money(layupCost(sh))}</button>`);
   }
   h += `<h2 class="sect">Actions</h2><div class="card" style="margin:0">
     <div class="row" style="gap:6px;flex-wrap:wrap">
@@ -4567,6 +4724,56 @@ function sheetShip(id){
 
   showSheet(esc(sh.name), `${cls.name} · ${PORTS[sh.port].name}`, h, acts.join("") || null);
 }
+function layupCard(sh){
+  const L = sh.layup, idx = MKT.idx[shipCls(sh).idx].v;
+  if(L.state !== "laid") return `<h2 class="sect">${T("layup","Lay-up")}</h2><div class="card" style="margin:0">
+    ${kv(L.state==="going"?"Going into lay-up":"Coming back into service", days1(Math.max(0,L.left))+" remaining")}
+  </div>`;
+  const down = S.day - L.since, saved = layupSavingDay(sh)*down;
+  return `<h2 class="sect">${T("layup","Laid up")}</h2><div class="card" style="margin:0">
+    ${kv("At", esc(PORTS[L.port].name)+" · "+days1(down))}
+    ${kv("Saved so far", money(saved), "pos")}
+    ${kv("Reactivation", money(layupCost(sh))+" and "+CFG.LAYUP.outDays+" days", "neg")}
+    ${kvt("Net position", money(saved-layupCost(sh)), cls_pn(saved-layupCost(sh)))}
+    ${kv("Her market now", Math.round(idx)+" — "+(idx<70?"still weak":idx<95?"soft but turning":"recovered"),
+         idx<70?"neg":idx<95?"haz":"pos")}
+    <div class="xs mut2" style="margin-top:7px">${idx>=95
+      ? "The market has come back. Every day laid up from here is a day of earnings given away — and it takes five days to get her working again."
+      : "Nothing to do but watch the index. Bring her back before the recovery, not after it."}</div>
+  </div>`;
+}
+
+/* The cycle, said out loud. A one-ship owner meeting their first real bust has
+   no way to tell "the market has turned" from "the game is broken", and the
+   difference is the entire point of the freight cycle. */
+function marketMoodCard(sh){
+  const key = shipCls(sh).idx, v = MKT.idx[key].v;
+  const hist = (S.mkt.hist[key] || []);
+  const mo = hist.length > 6 ? v - hist[hist.length-7] : 0;
+  if(v >= 78 && v <= 158) return "";
+  const weak = v < 78;
+  const moves = [];
+  if(weak){
+    if(has2("timecharter")) moves.push("fix her out on <b>time charter</b> — a poor rate you are paid every day beats a good rate you cannot find");
+    if(has2("layup")) moves.push("put her in <b>lay-up</b> and stop paying to trade a ship that cannot cover her costs");
+    if(has2("coa")) moves.push("take a <b>COA</b> and lock in volume across the trough");
+    if(has2("sandp")) moves.push("<b>buy</b> — this is when tonnage is cheap, and it is the only time it is");
+    if(has2("hedging")) moves.push("sell <b>FFAs</b> against the tonnage you already own");
+  } else {
+    if(has2("sandp")) moves.push("<b>sell</b> tonnage into the strength — values follow rates, and they follow them up");
+    if(has2("timecharter")) moves.push("fix out <b>long</b> at today's rate and keep it after the market goes");
+    if(has2("hedging")) moves.push("sell <b>FFAs</b> forward while the curve is high");
+  }
+  return `<div class="card" style="border-color:var(--${weak?"neg":"pos"});background:rgba(${weak?"224,82,82":"63,178,127"},.07)">
+    <div class="between"><div class="b ${weak?"neg":"pos"}">${weak?"The market has turned down":"The market is running hot"}</div>
+      <span class="pill ${weak?"bad":"on"}">${INDEX_META[key].short} ${Math.round(v)}</span></div>
+    <div class="sm mut" style="margin-top:6px">${weak
+      ? `${INDEX_META[key].name} is at ${Math.round(v)} against 100 at mid-cycle${mo<-3?`, down ${Math.abs(mo).toFixed(0)} in a month`:""}. Freight is cyclical and this is the cycle, not a fault — ${T("tce","TCE")} on every cargo on offer will be poor until it turns, and it will turn.`
+      : `${INDEX_META[key].name} is at ${Math.round(v)}${mo>3?`, up ${mo.toFixed(0)} in a month`:""}. Good markets end, and the owners who do well are the ones who act while it is still good.`}</div>
+    ${moves.length?`<div class="xs mut" style="margin-top:8px">What owners do here: ${moves.join("; ")}.</div>`:""}
+  </div>`;
+}
+
 function canalNote(cls){
   const a = canalsAllowed(cls, false);
   if(a.has("suez") && a.has("panama")) return "Suez and Panama";
@@ -4610,6 +4817,8 @@ function vCharter(){
   if(idle.length > 1) h += `<div class="seg${idle.length>3?" scroll":""}">${idle.map(s=>
     `<button aria-selected="${s.id===charterShip}" onclick="charterShip=${s.id};dirty()">${esc(s.name.split(" ").slice(-1)[0])}</button>`).join("")}</div>`;
 
+  h += marketMoodCard(sh);
+
   const p = PORTS[sh.port];
   h += `<div class="card" style="padding:11px 13px"><div class="between">
     <div><div class="xs mut2">Open at</div><div class="b">${esc(p.name)}</div></div>
@@ -4643,9 +4852,18 @@ function vCharter(){
   return h;
 }
 
+/* A fixture is judged against what the ship costs to run, not against zero. The
+   card colours TCE on that basis: green clears OPEX with something over, amber
+   covers the running cost and little else, red loses money on every day of the
+   voyage. This is the comparison the whole industry makes and it is the one the
+   headline number on the card should be inviting. */
+function tceCls(tce, sh){
+  const opex = opexDayFull(shipCls(sh), shipAge(sh), sh);
+  return tce > opex*1.35 ? "pos" : tce > opex ? "" : tce > opex*0.55 ? "haz" : "neg";
+}
 function fixtureCard(sh, f, e){
   const dp = PORTS[f.disch], liq = dp.liq;
-  const chips = [`<span class="pill">${S.voyagesDone>=1?"TCE ":""}${money(e.tce)}/d</span>`];
+  const chips = [];
   if(has("ballast") && e.balDays>0.05) chips.push(`<span class="pill warn">${days1(e.balDays)} ballast</span>`);
   if(has("eca") && e.ecaNm>0) chips.push(`<span class="pill">${T("eca","ECA")} ${Math.round(e.ecaNm/Math.max(1,e.balNm+e.ladNm)*100)}%</span>`);
   if(has2("canal") && Object.keys(e.canals).length) chips.push(`<span class="pill">${Object.keys(e.canals).map(c=>CFG.CANAL[c].name.split(" ")[0]).join("+")}</span>`);
@@ -4657,8 +4875,8 @@ function fixtureCard(sh, f, e){
       <div class="b trunc">${esc(e.loadName)} → ${esc(e.dischName)}</div>
       <div class="xs mut2 trunc">${CARGOES[f.cargo].name} · ${Math.round(e.qty).toLocaleString()} ${e.unit} · ${f.ws?"WS "+f.ws:"$"+f.rate.toFixed(2)}</div>
     </div><div style="text-align:right;flex:none">
-      <div class="lg b ${cls_pn(e.gvp)}">${money(e.gvp, e.gvp>0)}</div>
-      <div class="xs mut2">${days1(e.days)}</div></div></div>
+      <div class="lg b ${tceCls(e.tce, sh)}">${money0(e.tce)}<span class="sm mut">/d</span></div>
+      <div class="xs mut2">${money(e.gvp, e.gvp>0)} over ${days1(e.days)}</div></div></div>
     <div class="row" style="margin-top:9px;gap:5px;flex-wrap:wrap">${chips.join("")}</div>
     <div class="between" style="margin-top:9px;gap:10px">
       <div class="xs mut2 grow">Onward cargo from ${esc(dp.name)}: ${

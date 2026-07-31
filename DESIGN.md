@@ -1487,3 +1487,121 @@ other during this build.
 
 The `dead-handler` finding that survives every run is the audit matching `if` in
 `onclick="if(confirm(...))"` — a false positive in the checker, not the game.
+
+---
+
+## Appendix M — "After about 25 voyages every contract pays under $100k"
+
+Measured before changing anything: a harness plays a normal run, takes the
+best-TCE cargo each time, and records what the board offers at every voyage
+across three seeds.
+
+The report was accurate, and it had two separate causes.
+
+### 1. Every run had the same market
+
+```
+seed 1111   idx 112 → 179 (v16) → 57 (v39)
+seed 2222   idx 112 → 178 (v18) → 56 (v39)
+seed 3333   idx 112 → 176 (v18) → 102 (v30, still falling)
+```
+
+Three different seeds, one market. `IDX_PHASE0` is a constant table of starting
+phases, so `handy` began at phase 0 in every game. With a 1,650-day cycle that
+puts the peak on day 412 and the trough on day 1,237 — **always**. Around 25–30
+voyages the player is on the way down, every time, in every run.
+
+The freight cycle is meant to be the main source of variety between runs. It was
+a script.
+
+**Fix.** `newMarket` now draws a starting phase from the seed and offsets each
+segment against it, so `IDX_PHASE0` keeps doing the job it should be doing —
+Capesize turns before Handysize, boxes swing on their own schedule — while
+*where the run joins the cycle* varies. The range is bounded to `[-0.25, 1.25]`
+radians so the opening is never a depression (the first voyages were calibrated
+around mid-cycle) but the peak lands anywhere from day 85 to day 480, and the
+trough from roughly day 900 to day 1,300.
+
+A second wave was added at an unrelated period (610 days, 28% weight). One sine
+falls in a straight line for six hundred days; two make the path irregular, so a
+weak market has rallies in it and a recovery can start early.
+
+And the combined swing is raised to a power of 1.35. That keeps the peak and the
+trough exactly as deep while cutting the *time* spent at the extremes — the
+share of the cycle below index 70 falls from about 37% to 28%, the deep-bust
+share from 20% to 13%. Real freight indices sit near normal and lurch; a sine
+spends as long at its extremes as anywhere else.
+
+Measured after: seed 1111 peaks day 136, seed 2222 day 306, seed 3333 day 508,
+with rallies inside the decline rather than a monotonic slide.
+
+### 2. There was no move to make
+
+Even with a varied cycle, a trough arrives. At index 60 a Handysize grosses
+about $25k on a 22-day voyage — TCE around $1,100/day against $4,900/day of
+OPEX. A one-ship spot owner could fix a loss-making cargo, or sit idle and lose
+exactly the same money. Neither is a decision.
+
+**Lay-up.** The thing a real owner does. Warm lay-up keeps a skeleton crew,
+machinery turning and class in date:
+
+| | |
+| --- | --- |
+| Full OPEX | $4,529/day |
+| Laid up | $1,982/day (42% of OPEX, plus berth hire) |
+| Saving | $2,547/day |
+| To lay her up | 2 days |
+| To bring her back | 5 days and $20,380 |
+| Break-even | 9 days laid up |
+| **Trade if TCE is above** | **$2,547/day** |
+
+That last line is the whole mechanic. It is a genuinely discriminating
+threshold: in the measured runs, voyages offering $3,700–$5,800/day are worth
+trading and the ones at $350–$1,500/day are not. She earns nothing while she is
+down, steel deteriorates faster at a lay-up berth than under way, and coming
+back takes a working week — so calling the recovery late means arriving after
+the rates have gone. It is a bet on the market, not a free saving.
+
+Unlocks at 12 voyages. Laid-up ships are excluded from the charter board and
+from utilisation, and a survey falling due waits until she is reactivated.
+
+### 3. The card was inviting the wrong comparison
+
+The fixture card led with **total voyage profit** in large type and put TCE in a
+small chip. Total profit scales with voyage length, so a run of short Baltic
+cargoes at a perfectly healthy $9,000–$12,000/day TCE displays as `+$97k`,
+`+$94k`, `+$102k` — and reads as collapse.
+
+The brief asked for TCE to be prominent. It now leads:
+
+```
+Klaipeda → Rotterdam            $9,386/d
+Milling wheat · 26,999 mt        +$97k over 10.4d
+```
+
+and it is coloured against what the ship costs to run — green clears OPEX with
+something over, amber covers running cost and little else, red loses money every
+day of the voyage. That is the comparison the industry makes, and the card
+should be inviting it rather than the one that made a good week look like a bad
+one.
+
+### 4. Saying it out loud
+
+A market card appears on the Charter screen when the ship's segment is below 78
+or above 158. It names the index, says plainly that this is the cycle and not a
+fault, and lists what owners actually do here — charter out, lay up, take a COA,
+buy cheap tonnage; or in a hot market, sell tonnage, fix out long, sell FFAs. It
+only lists the moves the player has actually unlocked.
+
+### The most uncertain numbers
+
+- **`shape: 1.35`.** Chosen to cut deep-bust duration by about a third without
+  touching the range. There is no single right value; it is a judgement about
+  how much of a run should be spent in a bust.
+- **Lay-up at 42% of OPEX.** Warm lay-up is usually quoted at 30–50% depending
+  on how much crew stays aboard. Cold lay-up is cheaper again and takes months
+  to reverse — not modelled, and the obvious thing to add if lay-up turns out to
+  be too easy a button.
+- **Reactivation at 0.9 × OPEX × 5 days.** The break-even of 9 days is what
+  makes this a decision rather than a reflex, and it is the number to move if
+  players start laying up between every voyage.
