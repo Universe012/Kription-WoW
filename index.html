@@ -2299,6 +2299,28 @@ function load(raw){
   if(S.autoPause === undefined) S.autoPause = true;   // saves from before the setting
   if(!S.office) S.office = defaultOffice();           // saves from before the shore org
   if(S.ledger && S.ledger.shore === undefined) S.ledger.shore = 0;
+  if(S.ledger && S.ledger.fees  === undefined) S.ledger.fees  = 0;
+  if(S.ledger && S.ledger.lease === undefined) S.ledger.lease = 0;
+  if(S.autoDraft === undefined) S.autoDraft = true;
+  // Saves from before the bank carried debt on the ship. Lift each vessel's
+  // mortgage into the loan book, keeping the balance, rate and remaining term.
+  if(!S.loans){
+    S.loans = []; S.loanSeq = 0; S.lenderSeq = 0;
+    for(const sh of S.ships){
+      const d = sh.debt; if(!d || !(d.principal > 0)) continue;
+      const amortDay = d.orig/Math.max(1, d.termDays);
+      S.loans.push({
+        id:"L"+(++S.loanSeq), kind:"mortgage", shipId:sh.id,
+        lender:"Nordvest Maritime Bank",
+        principal:d.principal, orig:d.orig, rate:d.rate,
+        drawDay:S.day - (d.orig-d.principal)/Math.max(1e-9, amortDay),
+        termDays:d.termDays, amort:amortDay*CFG.BANK.period,
+        nextDue:S.day + CFG.BANK.period, limit:0,
+        paidP:d.paidP||0, paidI:d.paidI||0, arrears:0, arrearsDays:0,
+      });
+    }
+  }
+  syncAllDebt();
   // Rebuild the market: same seed, then restore the evolved values directly.
   MKT = newMarket(d.mkt.seed);
   MKT.oil = d.mkt.oil; MKT.oilNoise = d.mkt.oilNoise;
@@ -2485,18 +2507,23 @@ function resumeClock(){
   dirty();
 }
 
-/* Net daily result: what the fleet is actually earning per day right now.
+/* Net daily result: what the company is actually earning per day right now.
    Voyage contribution is the plan's TCE for ships at sea, zero for idle ships,
-   less OPEX and debt service for every ship whatever it is doing. */
+   less OPEX for every ship whatever she is doing, less bareboat hire on leased
+   tonnage, less the shore organisation, less debt service.
+
+   Debt service is drafted monthly but shown here as its daily equivalent, so
+   the instalment that leaves the account on the 30th is never a surprise. */
 function netPerDay(){
   let n = 0;
   for(const sh of S.ships){
     const cls = shipCls(sh);
     if(sh.voyage) n += sh.voyage.plan.tce;
     n -= opexDayFull(cls, shipAge(sh), sh);
-    if(sh.debt && sh.debt.principal>0)
-      n -= sh.debt.principal*sh.debt.rate/365 + sh.debt.orig/sh.debt.termDays;
+    if(sh.lease) n -= sh.lease.daily;
   }
+  n -= shoreCostDay();
+  n -= debtServiceDay();
   return n;
 }
 function utilisation(){
@@ -3057,9 +3084,11 @@ function newGame(seed){
     voyagesDone: 0,
     snp: [], orders: [], coas: [], services: [], ffa: [], swaps: [],
     events: [], eventStamp: 0,
+    loans: [], loanSeq: 0, lenderSeq: 0, autoDraft: true, coSub: "accounts",
     ledger: { freight:0, hire:0, bunkers:0, portDA:0, tolls:0, war:0, carbon:0,
               demurrage:0, opex:0, shore:0, interest:0, principal:0, survey:0, psc:0,
-              tax:0, snp:0, scrap:0, liner:0, derivatives:0, penalties:0 },
+              tax:0, snp:0, scrap:0, liner:0, derivatives:0, penalties:0,
+              fees:0, lease:0 },
     office: defaultOffice(),
     yearBook: { start:0, profit:0 },
     daily: [], log: [], seen: {}, coached: {}, mkt: null,
@@ -3078,10 +3107,12 @@ function newGame(seed){
   ship.rob = { mgo: 340, vlsfo: 240 };
   ship.robCost = { mgo: CFG.FUEL.mgo.base + 30, vlsfo: CFG.FUEL.vlsfo.base + 30 };
   ship.flagMult = flagOpexMult(ship.flag);
-  ship.debt = { principal: val*cfg.ltv, orig: val*cfg.ltv, rate: cfg.rate,
-                termDays: cfg.termYears*365, paidP:0, paidI:0 };
   s.ships.push(ship);
   S = s;
+  // She comes with a mortgage on her, like almost every first ship ever bought.
+  bankOriginate({ kind:"mortgage", shipId:ship.id, principal: val*cfg.ltv,
+                  rate: cfg.rate, termYears: cfg.termYears,
+                  lender: "Nordvest Maritime Bank" });
   refreshBoard(true);
   refreshSnp(true);
   snapshotMarket();
@@ -3151,6 +3182,8 @@ function onNewDay(d, quiet){
   // derivatives
   for(const f of S.ffa.slice())  if(d >= f.endDay) settleFfa(f, quiet);
   for(const w of S.swaps.slice()) if(d >= w.endDay) settleSwap(w, quiet);
+  // bank instalments fall due on their own monthly dates, and leases expire
+  bankNewDay(d, quiet);
   // charter expiries
   for(const sh of S.ships) if(sh.emp && sh.emp.endDay && d >= sh.emp.endDay) endEmployment(sh, quiet);
   // COA performance
@@ -3192,11 +3225,16 @@ function accrueDaily(sh, dt, quiet){
     sh.offHireDays += dt; emp.offHire = (emp.offHire||0) + dt;
   }
 
-  if(sh.debt && sh.debt.principal > 0){
-    const i = sh.debt.principal * sh.debt.rate / 365 * dt;
-    const p = Math.min(sh.debt.principal, sh.debt.orig / sh.debt.termDays * dt);
-    sh.debt.principal -= p; sh.debt.paidI += i; sh.debt.paidP += p;
-    S.cash -= (i+p); S.ledger.interest += i; S.ledger.principal += p;
+  // Debt service is NOT charged here. Loan instalments are drafted monthly by
+  // §BANK on each facility's own date, which is how a loan agreement works.
+  // The HUD still shows the daily-equivalent so the draft is never a surprise.
+
+  // Bareboat hire on a leased-back ship is an operating cost, not debt service,
+  // and it runs every single day she is on the books.
+  if(sh.lease){
+    const hire = sh.lease.daily * dt;
+    S.cash -= hire; S.ledger.lease = (S.ledger.lease||0) + hire;
+    sh.lease.paid = (sh.lease.paid||0) + hire;
   }
   // Working the ship wears her; drydock puts it back.
   if(sh.status !== "idle" && !sh.dd)
@@ -3209,8 +3247,10 @@ function accrueDaily(sh, dt, quiet){
 function estOpts(sh){
   return { year: year(), month: gDate().getUTCMonth(), drought: S.drought,
            shipValue: assetValue(sh.cls, shipAge(sh), MKT),
-           debtDaily: sh.debt && sh.debt.principal>0
-             ? sh.debt.principal*sh.debt.rate/365 + sh.debt.orig/sh.debt.termDays : 0,
+           // What this ship's own finance costs per day — her mortgages, plus
+           // bareboat hire if she is leased in. Corporate debt is not charged
+           // against a single voyage.
+           debtDaily: shipDebtServiceDay(sh) + (sh.lease ? sh.lease.daily : 0),
            speedCap: sh.speedCap, portRateMult: sh.portRateMult,
            extraDelay: 0 };
 }
@@ -3735,15 +3775,20 @@ function buyShip(offerId, ltv){
   sh.hull = o.cond; sh.flag = o.flag; sh.classSoc = o.classSoc;
   sh.flagMult = flagOpexMult(sh.flag);
   sh.scrubber = o.scrubber; sh.eco = o.eco;
-  if(debt > 0) sh.debt = { principal:debt, orig:debt, rate:loanRate(), termDays:CFG.FIN.termYears*365, paidP:0, paidI:0 };
   S.ships.push(sh);
+  if(debt > 0) bankOriginate({ kind:"mortgage", shipId:sh.id, principal:debt,
+                               rate:loanRate(), termYears:CFG.FIN.termYears });
   S.snp = S.snp.filter(x=>x.id!==offerId);
   hideSheet(); dirty();
   toast(`Bought <b>${esc(sh.name)}</b> — ${CLASSES[o.cls].name}, ${o.age} years, for ${money(o.ask)}.`, "good");
 }
-function loanRate(){
+/* What this company pays for money: a base rate, plus a margin set by the
+   credit rating, plus whatever the finance department is worth, plus a product
+   spread — unsecured money costs more than a ship mortgage because there is no
+   ship behind it. */
+function loanRate(spread){
   return Math.max(0.02, CFG.FIN.rateBase + (CFG.FIN.marginByRating[S.rating] ?? 0.033)
-                      + shoreFx("loanMarginAdj", 0));
+                      + shoreFx("loanMarginAdj", 0) + (spread || 0));
 }
 let _nameN = 0;
 const NAME_A = ["Kription","Nordic","Arctic","Atlantic","Bergen","Fjord","Polar","Vestland",
@@ -3757,9 +3802,11 @@ function vesselName(){
 function sellShip(shipId){
   const sh = S.ships.find(s=>s.id===shipId); if(!sh) return;
   if(sh.voyage){ toast("She is on a voyage. Sell her when she is free.", "bad"); return; }
+  if(sh.lease){ toast("She belongs to the lessor — she is not yours to sell.", "bad"); return; }
   const px = bidPrice(sh.cls, shipAge(sh), MKT, sh.hull);
   const fee = px*CFG.SNP.brokerage;
-  const debt = sh.debt ? sh.debt.principal : 0;
+  // The mortgagee is paid out of the proceeds before anything reaches the owner.
+  const debt = bankCloseForShip(shipId);
   const proceeds = px - fee - debt;
   S.cash += proceeds; S.ledger.snp -= px;
   releaseFromService(sh);
@@ -3770,8 +3817,9 @@ function sellShip(shipId){
 function scrapShip(shipId){
   const sh = S.ships.find(s=>s.id===shipId); if(!sh) return;
   if(sh.voyage){ toast("She is on a voyage.", "bad"); return; }
+  if(sh.lease){ toast("She belongs to the lessor — she is not yours to scrap.", "bad"); return; }
   const px = scrapValue(sh.cls, MKT);
-  const debt = sh.debt ? sh.debt.principal : 0;
+  const debt = bankCloseForShip(shipId);
   S.cash += px - debt; S.ledger.scrap += px;
   releaseFromService(sh);
   S.ships = S.ships.filter(s=>s.id!==shipId);
@@ -3843,35 +3891,47 @@ function changeFlag(shipId, flagId){
    DEBT, COVENANTS AND RESTRUCTURING
    ========================================================================= */
 function fleetValue(){ return S.ships.reduce((a,s)=>a+assetValue(s.cls, shipAge(s), MKT),0); }
-function totalDebt(){ return S.ships.reduce((a,s)=>a+(s.debt?s.debt.principal:0),0); }
+/* Every facility in the book — ship mortgages, the revolver, unsecured money —
+   plus anything overdue. Leased-in tonnage is not debt: the ship is not yours,
+   and the hire is an operating cost. */
+function totalDebt(){ return (S.loans||[]).reduce((a,l)=>a+l.principal+(l.arrears||0),0); }
 function equity(){ return S.cash + fleetValue() - totalDebt(); }
 function checkCovenants(quiet){
   const d = totalDebt(); if(d <= 0){ S.cov = null; return; }
   const ltv = d/Math.max(1, fleetValue());
   const liq = S.cash/d;
-  const breach = ltv > CFG.FIN.covLtv || liq < CFG.FIN.covMinLiquidity;
+  const dflt = bankInDefault();
+  const breach = ltv > CFG.FIN.covLtv || liq < CFG.FIN.covMinLiquidity || dflt;
   if(breach && !S.cov){
-    S.cov = { day:S.day, until:S.day+CFG.FIN.cureDays, ltv, liq };
-    if(!quiet) queueNote("Covenant breach",
-      `Your lender has written. Loan-to-value stands at ${pc(ltv)} against an 80% ceiling, and cash is ${pc(liq)} of debt against a 6% minimum undertaking. You have ${CFG.FIN.cureDays} days to cure it — sell tonnage, or raise cash.`, "bad");
+    S.cov = { day:S.day, until:S.day+CFG.FIN.cureDays, ltv, liq, dflt };
+    if(!quiet) queueNote("Covenant breach", dflt
+      ? `Your lender has written. Instalments have stood unpaid for more than ${CFG.BANK.graceDays} days, which is an event of default under the loan agreement. Clear the arrears within ${CFG.FIN.cureDays} days or the whole book is repayable on demand.`
+      : `Your lender has written. Loan-to-value stands at ${pc(ltv)} against an 80% ceiling, and cash is ${pc(liq)} of debt against a 6% minimum undertaking. You have ${CFG.FIN.cureDays} days to cure it — sell tonnage, or raise cash.`, "bad");
   } else if(!breach && S.cov){
     S.cov = null;
     if(!quiet) toast("Covenant cured. The bank has stood down.", "good");
   } else if(breach && S.cov && S.day > S.cov.until){
+    // Enforcement sets the rating to D itself, and it must stick — a wrecked
+    // rating is the consequence. Recomputing it here would hand it straight
+    // back, since the fleet comes out of a restructuring debt free.
     restructure(quiet);
+    return;
   }
   S.rating = ltv < 0.45 && liq > 0.15 ? "A" : ltv < 0.6 ? "B" : ltv < 0.75 ? "C" : "D";
 }
 /* Enforcement. The bank takes the fleet bar one ship; the run continues with a
    wrecked credit rating rather than ending. */
 function restructure(quiet){
-  const keep = S.ships.slice().sort((a,b)=>
+  // You keep the ship with the least debt against her value — and she must be
+  // one you actually own; a lessor simply takes their vessel back.
+  const keep = S.ships.filter(s=>!s.lease).sort((a,b)=>
     (a.debt?a.debt.principal:0)/assetValue(a.cls,shipAge(a),MKT) -
     (b.debt?b.debt.principal:0)/assetValue(b.cls,shipAge(b),MKT))[0];
   const lost = S.ships.filter(s=>s!==keep);
   for(const s of lost) releaseFromService(s);
   S.ships = keep ? [keep] : [];
-  if(keep){ keep.debt = null; keep.voyage = null; keep.status = "idle"; keep.emp = { type:"spot" }; }
+  S.loans = [];
+  if(keep){ keep.debt = null; keep.lease = null; keep.voyage = null; keep.status = "idle"; keep.emp = { type:"spot" }; }
   S.cov = null; S.rating = "D"; S.restructured = (S.restructured||0)+1;
   S.rep = clamp(S.rep-0.25, 0, 1);
   S.cash = Math.max(S.cash, 250000);
@@ -5173,12 +5233,15 @@ function vCompany(){
   const fleetDays = S.ships.reduce((a,s)=>a+s.lifeDays,0);
   const fleetGvp = S.ships.reduce((a,s)=>a+s.lifeGvp,0);
   const result = L.freight+L.hire+L.demurrage+L.liner
-                -(L.bunkers+L.portDA+L.tolls+L.war+L.carbon+L.opex+L.interest+L.survey+L.psc+L.penalties+L.tax);
+                -(L.bunkers+L.portDA+L.tolls+L.war+L.carbon+L.opex+(L.shore||0)+L.interest
+                  +(L.fees||0)+(L.lease||0)+L.survey+L.psc+L.penalties+L.tax);
 
-  let h = "";
+  let h = companySeg();
   if(S.cov) h += `<div class="card" style="border-color:var(--neg);background:rgba(224,82,82,.08)">
     <div class="b neg">${T("covenant","Covenant")} breach — ${Math.max(0,Math.ceil(S.cov.until-S.day))} days to cure</div>
     <div class="sm mut" style="margin-top:5px">Sell tonnage or raise cash. If the cure period expires the bank takes the fleet bar one ship and the run continues from there.</div></div>`;
+
+  if(S.coSub === "bank") return h + vBank();
 
   h += `<h2 class="sect" ${S.cov?"":'style="margin-top:2px"'}>Balance sheet</h2><div class="card">
     ${kv("Cash", money(S.cash), cls_pn(S.cash))}
@@ -5187,6 +5250,9 @@ function vCompany(){
     ${kv("Debt", "−"+money(debt), "neg")}
     ${kvt("Net equity", money(eq), cls_pn(eq))}
     ${debt>0?kv(T("ltv","LTV"), pc(debt/Math.max(1,assets)), debt/assets>0.7?"haz":"")+kv("Credit rating", S.rating):""}
+    ${debt>0||S.ships.some(s=>s.lease)?`<div class="between" style="margin-top:9px;padding-top:9px;border-top:1px solid var(--line)">
+      <span class="sm mut">Debt service ${money0(debtServiceDay()+leaseCostDay())}/day</span>
+      <button class="btn sm" style="flex:none;min-height:32px" onclick="coSub('bank')">Bank →</button></div>`:""}
   </div>`;
 
   h += `<h2 class="sect">Profit &amp; loss — to date</h2><div class="card">
@@ -5205,6 +5271,8 @@ function vCompany(){
     ${L.psc?kv(T("psc","PSC")+" deficiencies", "−"+money(L.psc), "neg"):""}
     ${L.penalties?kv("COA penalties", "−"+money(L.penalties), "neg"):""}
     ${kv("Interest", "−"+money(L.interest), "neg")}
+    ${L.fees?kv("Bank fees", "−"+money(L.fees), "neg"):""}
+    ${L.lease?kv(T("leaseback","Bareboat hire in"), "−"+money(L.lease), "neg"):""}
     ${L.tax?kv("Tax", "−"+money(L.tax), "neg"):""}
     ${Math.abs(L.derivatives)>100?kv("Derivatives", money(-L.derivatives, -L.derivatives>0), cls_pn(-L.derivatives)):""}
     ${kvt("Result", money(result), cls_pn(result))}
@@ -5737,6 +5805,970 @@ function sheetGoManaged(){
      </div>
      <div class="card" style="margin-top:12px"><div class="sm mut">A manager is average at everything, for a predictable fee. You give up the upside of running a tight technical department and the downside of running a poor one.</div></div>`,
     `<button class="btn dang" ${cost>S.cash?"disabled":""} onclick="goManaged()">${cost>S.cash?"Not enough cash for severance":"Hand over — "+money(cost)}</button>`);
+}
+/* ############################################################################
+   §BANK — ship finance.
+
+   Shipping is a capital business before it is a transport business. A ship is
+   a ten-to-a-hundred-million-dollar asset earning a five-figure daily margin,
+   so almost nobody buys one out of cash. What the owner actually manages is a
+   balance sheet: how much debt, secured on what, at what margin, amortising
+   how fast, and whether there is a working-capital line to cover the month a
+   voyage pays late.
+
+   Everything the game owes anyone lives in S.loans. Each vessel keeps a
+   `sh.debt` MIRROR of the loans secured on her, rebuilt by syncShipDebt(), so
+   the vessel sheet, the sale sheet and the voyage estimate can keep asking
+   "what does this ship owe" without knowing the bank exists.
+
+   Instalments are drafted MONTHLY, not daily — that is how a loan agreement
+   actually works, and it is why a facility matters. The HUD still shows debt
+   service as a daily-equivalent figure so the monthly draft is never a
+   surprise.
+
+   TUNING: everything below CFG.BANK. Rates are quoted as spreads over the
+   company's own borrowing rate (loanRate()), which is base plus a margin set
+   by the credit rating — so a wrecked balance sheet costs more to fund, which
+   is the whole point.
+   ######################################################################### */
+
+Object.assign(CFG, {
+  BANK: {
+    period: 30.44,            // one drafting month, in days (365/12)
+    graceDays: 45,            // arrears tolerated before it is an event of default
+    defaultSpread: 0.035,     // penalty interest charged on overdue amounts
+    arrangement: 0.0085,      // arrangement fee, share of the facility, paid on drawdown
+    breakage: 0.015,          // early repayment fee on the amount prepaid
+    refiFee: 0.010,           // refinancing a mortgage costs a fresh arrangement fee
+    minLoan: 250000,          // below this nobody will do the paperwork
+    groupCap: 0.72,           // no lender takes total debt above this share of fleet value
+
+    // --- products ---------------------------------------------------------
+    // Ship mortgage: secured on a named vessel, the cheapest money in shipping.
+    mortgage: { terms: [5, 8, 12], spread: 0 },
+    // Revolving credit facility: corporate, interest-only, draw and repay at
+    // will. You pay a commitment fee on the part you are NOT using — that is
+    // what an undrawn line costs, and it is cheap insurance against a late
+    // freight payment.
+    rcf: { spread: 0.012, commitment: 0.0035, ofEquity: 0.40, ofFleet: 0.18,
+           gateVoyages: 6 },
+    // Unsecured corporate loan: no ship behind it, so the margin is brutal and
+    // the term is short. This is expensive money and should feel like it.
+    corp: { spread: 0.040, terms: [6, 9, 12], ofEquity: 0.22, cap: 15000000,
+            gateVoyages: 12 },
+    // Sale and leaseback: sell the ship to a leasing house and bareboat her
+    // back. Turns an asset into cash at the price of a daily hire you owe
+    // whatever the market does — the classic way owners over-extend.
+    lease: { price: 0.92, rate: 0.112, years: 7, option: 0.28, gateVoyages: 20,
+             gateShips: 3 },
+  },
+});
+
+Object.assign(GLOSSARY, {
+  mortgage:  ["Ship mortgage", "A loan secured on a named vessel. The bank registers a mortgage against her at the flag registry; sell her and the loan is repaid out of the proceeds first."],
+  rcf:       ["Revolving credit facility", "A committed line you can draw and repay at will, interest only on what you have drawn and a small fee on what you have not. Working capital for the months a voyage pays late."],
+  amort:     ["Amortisation", "Repaying principal in instalments over the life of the loan, rather than all at the end. A twelve-year ship mortgage repays about a twelfth of itself each year."],
+  arrears:   ["Arrears", "An instalment you did not pay when it fell due. It carries penalty interest and, left long enough, is an event of default that makes the whole loan repayable on demand."],
+  leaseback: ["Sale and leaseback", "Sell the ship to a leasing house and charter her straight back on bareboat terms. You get the cash today and owe a fixed daily hire for years — cheap when rates are good, ruinous when they are not."],
+  bareboatin:["Bareboat in", "Chartering a ship without crew: you man her, maintain her, insure her and pay a daily hire. Commercially she is yours; legally she is not."],
+  unsecured: ["Unsecured loan", "Money lent against the company rather than against a ship. Nothing is pledged, so the lender prices the risk into the margin."],
+});
+
+/* Lenders and lessors, so the debt has faces attached to it. */
+const LENDERS = ["Nordvest Maritime Bank", "Hansa Ship Finance", "Meridian Marine Capital",
+                 "Aegean Vessel Credit", "Kvarven Kredittbank"];
+const LESSORS = ["Pearl River Leasing", "Zhoushan Tonnage Partners", "Cyan Maritime Leasing"];
+function nextLender(pool){
+  const p = pool || LENDERS;
+  S.lenderSeq = ((S.lenderSeq || 0) + 1) % 9973;
+  return p[S.lenderSeq % p.length];
+}
+
+/* ==========================================================================
+   THE LOAN BOOK
+   ========================================================================= */
+const bankLoans   = ()=> (S.loans || (S.loans = []));
+const loansForShip= (id)=> bankLoans().filter(l=>l.shipId === id);
+const corpLoans   = ()=> bankLoans().filter(l=>!l.shipId);
+const rcfLoan     = ()=> bankLoans().find(l=>l.kind === "rcf") || null;
+
+/* What falls due on this loan at the next drafting date.
+   Interest is on the outstanding balance for the period. Principal is level —
+   the same slice of the original amount every month — which is how ship
+   mortgages are actually written. The RCF pays a commitment fee on the
+   undrawn part instead of amortising. */
+function loanDue(l){
+  const P = CFG.BANK.period;
+  const interest  = l.principal * l.rate * P / 365;
+  const principal = Math.min(l.principal, l.amort || 0);
+  const fee = l.kind === "rcf"
+    ? Math.max(0, (l.limit || 0) - l.principal) * CFG.BANK.rcf.commitment * P / 365 : 0;
+  return { interest, principal, fee, total: interest + principal + fee };
+}
+/* Daily-equivalent service, for the HUD and the voyage estimate. The money
+   leaves monthly; the cost is incurred every day, and the player is shown the
+   daily figure so the monthly draft is never news. */
+const loanServiceDay   = (l)=> loanDue(l).total / CFG.BANK.period;
+const shipDebtServiceDay=(sh)=> loansForShip(sh.id).reduce((a,l)=>a+loanServiceDay(l), 0);
+const debtServiceDay   = ()=> bankLoans().reduce((a,l)=>a+loanServiceDay(l), 0);
+const leaseCostDay     = ()=> S.ships.reduce((a,s)=>a+(s.lease ? s.lease.daily : 0), 0);
+const totalArrears     = ()=> bankLoans().reduce((a,l)=>a+(l.arrears||0), 0);
+
+/* The mirror. Everything outside this file reads sh.debt and never touches
+   S.loans, so adding a product here needs no changes anywhere else. termDays
+   is chosen so that orig/termDays equals the real daily principal repayment,
+   which is the form the older readers expect. */
+function syncShipDebt(sh){
+  if(!sh) return;
+  const ls = loansForShip(sh.id).filter(l=>l.principal > 0.01);
+  if(!ls.length){ sh.debt = null; return; }
+  const principal = ls.reduce((a,l)=>a+l.principal, 0);
+  const orig      = ls.reduce((a,l)=>a+l.orig, 0);
+  const intDay    = ls.reduce((a,l)=>a+l.principal*l.rate/365, 0);
+  const amortDay  = ls.reduce((a,l)=>a+(l.amort||0)/CFG.BANK.period, 0);
+  sh.debt = {
+    mirror: true, principal, orig,
+    rate: principal > 0 ? intDay*365/principal : 0,
+    termDays: amortDay > 1e-9 ? orig/amortDay : 1e9,
+    paidP: ls.reduce((a,l)=>a+l.paidP, 0),
+    paidI: ls.reduce((a,l)=>a+l.paidI, 0),
+  };
+}
+function syncAllDebt(){ if(S && S.ships) for(const sh of S.ships) syncShipDebt(sh); }
+
+/* Write a new facility. */
+function bankOriginate(o){
+  const P = CFG.BANK.period;
+  const termDays = o.termDays || (o.termYears || CFG.FIN.termYears)*365;
+  const l = {
+    id: "L" + (S.loanSeq = (S.loanSeq || 0) + 1),
+    kind: o.kind, shipId: o.shipId || null,
+    lender: o.lender || nextLender(),
+    principal: o.principal || 0, orig: o.principal || 0,
+    rate: o.rate, drawDay: S.day, termDays,
+    amort: o.interestOnly ? 0 : (o.principal || 0) / (termDays/P),
+    nextDue: S.day + P,
+    limit: o.limit || 0,
+    paidP: 0, paidI: 0, arrears: 0, arrearsDays: 0,
+  };
+  bankLoans().push(l);
+  if(l.shipId) syncShipDebt(S.ships.find(s=>s.id === l.shipId));
+  return l;
+}
+function closeLoan(l){
+  S.loans = bankLoans().filter(x=>x !== l);
+  if(l.shipId) syncShipDebt(S.ships.find(s=>s.id === l.shipId));
+}
+/* Called when a ship leaves the fleet: her mortgages are repaid out of the
+   proceeds before anything reaches the owner. Returns what the bank took. */
+function bankCloseForShip(shipId){
+  const ls = loansForShip(shipId);
+  const owed = ls.reduce((a,l)=>a+l.principal+(l.arrears||0), 0);
+  S.loans = bankLoans().filter(l=>l.shipId !== shipId);
+  return owed;
+}
+
+/* Headroom. A lender looks at the ship, then at the group. */
+function maxMortgage(sh){
+  if(!sh || sh.lease) return 0;
+  const val = assetValue(sh.cls, shipAge(sh), MKT);
+  const already = loansForShip(sh.id).reduce((a,l)=>a+l.principal, 0);
+  const onShip = Math.max(0, val*CFG.FIN.maxLtv - already);
+  return Math.min(onShip, groupHeadroom());
+}
+function groupHeadroom(){
+  return Math.max(0, fleetValue()*CFG.BANK.groupCap - totalDebt());
+}
+function rcfLimit(){
+  const raw = Math.min(equity()*CFG.BANK.rcf.ofEquity, fleetValue()*CFG.BANK.rcf.ofFleet);
+  return Math.max(0, Math.floor(raw/100000)*100000);
+}
+function maxCorp(){
+  const c = CFG.BANK.corp;
+  return Math.max(0, Math.min(equity()*c.ofEquity, c.cap, groupHeadroom()));
+}
+function bankGate(k){
+  const b = CFG.BANK;
+  if(S.debug) return true;
+  if(k === "rcf")   return S.voyagesDone >= b.rcf.gateVoyages;
+  if(k === "corp")  return S.voyagesDone >= b.corp.gateVoyages;
+  if(k === "lease") return S.voyagesDone >= b.lease.gateVoyages && S.ships.length >= b.lease.gateShips;
+  return true;
+}
+
+/* ==========================================================================
+   THE MONTHLY DRAFT
+   Every loan has its own date, set a month after drawdown, so a facility taken
+   mid-month is not billed a fortnight later. Cash is applied oldest-first:
+   arrears, then this period's fees and interest, then principal.
+
+   If the account is short, the shortfall in INTEREST becomes arrears and
+   carries penalty interest. Unpaid PRINCIPAL is simply not repaid — the loan
+   runs longer. That is both how it works and how it avoids counting the same
+   dollar as debt twice.
+   ========================================================================= */
+function bankNewDay(d, quiet){
+  const auto = S.autoDraft !== false;
+  let drafted = 0, shortfall = 0, defaulted = false;
+
+  for(const l of bankLoans().slice()){
+    // Overdue money is expensive money, every day it stands out.
+    if(l.arrears > 0.5){
+      l.arrears *= 1 + (l.rate + CFG.BANK.defaultSpread)/365;
+      l.arrearsDays += 1;
+      if(l.arrearsDays > CFG.BANK.graceDays) defaulted = true;
+    }
+    if(d < l.nextDue) continue;
+    l.nextDue += CFG.BANK.period;
+
+    const due = loanDue(l);
+    const owed = l.arrears + due.total;
+    if(owed < 0.5){
+      if(l.principal <= 0.01 && l.kind !== "rcf"){ retireLoan(l, quiet); }
+      continue;
+    }
+    let left = auto ? clamp(S.cash, 0, owed) : 0;
+    const pay = left;
+    S.cash -= pay; drafted += pay;
+    const take = (x)=>{ const t = Math.min(left, Math.max(0,x)); left -= t; return t; };
+    const arrPaid = take(l.arrears);
+    const feePaid = take(due.fee);
+    const iPaid   = take(due.interest);
+    const pPaid   = take(due.principal);
+
+    l.arrears = (l.arrears - arrPaid) + (due.fee - feePaid) + (due.interest - iPaid);
+    l.principal = Math.max(0, l.principal - pPaid);
+    l.paidP += pPaid; l.paidI += iPaid + feePaid;
+    S.ledger.interest += iPaid; S.ledger.fees = (S.ledger.fees||0) + feePaid;
+    S.ledger.principal += pPaid;
+
+    if(l.arrears > 0.5){ shortfall += l.arrears; if(!l.arrearsDays) l.arrearsDays = 1; }
+    else { l.arrears = 0; l.arrearsDays = 0; }
+
+    if(l.principal <= 0.01 && l.arrears <= 0.5 && l.kind !== "rcf") retireLoan(l, quiet);
+    else if(l.shipId) syncShipDebt(S.ships.find(s=>s.id === l.shipId));
+  }
+
+  bankLeaseDay(d, quiet);
+
+  if(drafted > 0 && !quiet)
+    toast(`Bank instalments drafted — ${money(drafted)}.`, shortfall > 0 ? "warn" : "");
+  if(shortfall > 0 && !quiet)
+    queueNote("Instalment unpaid",
+      `There was not enough in the account to meet ${money(shortfall)} of what fell due. It now sits in ${T("arrears","arrears")} and carries penalty interest at ${pc(CFG.BANK.defaultSpread)} over the loan rate.
+       Clear it within ${CFG.BANK.graceDays} days — fix a cargo, draw on a facility, or sell something — or the lender is entitled to call the whole book.`, "bad");
+  if(defaulted) checkCovenants(quiet);
+}
+function retireLoan(l, quiet){
+  closeLoan(l);
+  if(!quiet) toast(`<b>${esc(l.lender)}</b> — ${loanLabel(l)} repaid in full.`, "good");
+}
+/* A payment default is a covenant breach by another name; it feeds the same
+   cure period and the same enforcement. */
+const bankInDefault = ()=> bankLoans().some(l=>(l.arrearsDays||0) > CFG.BANK.graceDays);
+
+/* ==========================================================================
+   BORROWING
+   ========================================================================= */
+function takeMortgage(shipId, amount, years){
+  const sh = S.ships.find(s=>s.id === shipId); if(!sh) return;
+  const cap = maxMortgage(sh);
+  const amt = Math.min(amount, cap);
+  if(amt < CFG.BANK.minLoan){ toast("Too small for a bank to write.", "bad"); return; }
+  const fee = amt*CFG.BANK.arrangement;
+  const rate = loanRate(CFG.BANK.mortgage.spread);
+  bankOriginate({ kind:"mortgage", shipId, principal:amt, rate, termYears:years });
+  S.cash += amt - fee; S.ledger.fees = (S.ledger.fees||0) + fee;
+  hideSheet(); dirty(); checkCovenants(false);
+  toast(`${money(amt)} raised against <b>${esc(sh.name)}</b> at ${pc(rate)} over ${years} years. Arrangement fee ${money0(fee)}.`, "good");
+}
+function refinance(loanId, amount, years){
+  const l = bankLoans().find(x=>x.id === loanId); if(!l || l.kind !== "mortgage") return;
+  const sh = S.ships.find(s=>s.id === l.shipId); if(!sh) return;
+  const val = assetValue(sh.cls, shipAge(sh), MKT);
+  const others = loansForShip(sh.id).filter(x=>x !== l).reduce((a,x)=>a+x.principal, 0);
+  const cap = Math.max(0, Math.min(val*CFG.FIN.maxLtv - others, groupHeadroom() + l.principal));
+  const amt = Math.min(amount, cap);
+  if(amt < CFG.BANK.minLoan){ toast("Too small to refinance.", "bad"); return; }
+  const fee = amt*CFG.BANK.refiFee;
+  const owed = l.principal + (l.arrears||0);
+  const net = amt - owed - fee;
+  if(net < 0 && -net > S.cash){ toast("Not enough cash to repay the difference.", "bad"); return; }
+  const rate = loanRate(CFG.BANK.mortgage.spread);
+  closeLoan(l);
+  bankOriginate({ kind:"mortgage", shipId:sh.id, principal:amt, rate, termYears:years });
+  S.cash += net; S.ledger.fees = (S.ledger.fees||0) + fee;
+  hideSheet(); dirty(); checkCovenants(false);
+  toast(`Refinanced <b>${esc(sh.name)}</b> at ${pc(rate)} over ${years} years — ${net>=0?money(net)+" released":money(-net)+" injected"}.`, "good");
+}
+function openRcf(){
+  if(rcfLoan()){ toast("You already have a facility.", "bad"); return; }
+  const lim = rcfLimit();
+  if(lim < CFG.BANK.minLoan){ toast("Your balance sheet does not support a facility yet.", "bad"); return; }
+  const fee = lim*CFG.BANK.arrangement;
+  if(fee > S.cash){ toast("Not enough cash for the arrangement fee.", "bad"); return; }
+  S.cash -= fee; S.ledger.fees = (S.ledger.fees||0) + fee;
+  const l = bankOriginate({ kind:"rcf", principal:0, limit:lim,
+                            rate:loanRate(CFG.BANK.rcf.spread), termYears:5, interestOnly:true });
+  hideSheet(); dirty();
+  toast(`${money(lim)} facility agreed with <b>${esc(l.lender)}</b>. Arrangement fee ${money0(fee)}.`, "good");
+}
+function drawRcf(amount){
+  const l = rcfLoan(); if(!l) return;
+  const amt = Math.min(amount, Math.max(0, l.limit - l.principal), groupHeadroom());
+  if(amt < 1000){ toast("Nothing left to draw.", "bad"); return; }
+  l.principal += amt; l.orig += amt;
+  S.cash += amt;
+  hideSheet(); dirty(); checkCovenants(false);
+  toast(`Drew ${money(amt)} on the facility. ${money(l.limit-l.principal)} still available.`, "good");
+}
+function repayRcf(amount){
+  const l = rcfLoan(); if(!l) return;
+  const amt = Math.min(amount, l.principal, S.cash);
+  if(amt < 1000) return;
+  l.principal -= amt; l.paidP += amt;
+  S.cash -= amt; S.ledger.principal += amt;
+  hideSheet(); dirty(); checkCovenants(false);
+  toast(`Repaid ${money(amt)} — the facility is available again.`, "good");
+}
+function closeRcf(){
+  const l = rcfLoan(); if(!l) return;
+  if(l.principal > 0.5 || l.arrears > 0.5){ toast("Repay the drawn balance first.", "bad"); return; }
+  closeLoan(l); hideSheet(); dirty();
+  toast("Facility cancelled. No more commitment fee.", "");
+}
+function takeCorp(amount, months){
+  const amt = Math.min(amount, maxCorp());
+  if(amt < CFG.BANK.minLoan){ toast("Too small, or no headroom left.", "bad"); return; }
+  const fee = amt*CFG.BANK.arrangement;
+  const rate = loanRate(CFG.BANK.corp.spread);
+  bankOriginate({ kind:"corp", principal:amt, rate, termDays:months*CFG.BANK.period });
+  S.cash += amt - fee; S.ledger.fees = (S.ledger.fees||0) + fee;
+  hideSheet(); dirty(); checkCovenants(false);
+  toast(`${money(amt)} unsecured at ${pc(rate)} over ${months} months. This is expensive money — repay it early if you can.`, "warn");
+}
+/* Prepayment. Term loans carry a breakage fee because the lender priced the
+   whole term; the revolver does not, which is exactly what you pay the
+   commitment fee for. */
+function prepay(loanId, amount){
+  const l = bankLoans().find(x=>x.id === loanId); if(!l) return;
+  if(l.kind === "rcf") return repayRcf(amount);
+  const arr = Math.min(l.arrears, amount);
+  const principal = Math.min(l.principal, amount - arr);
+  const fee = (arr + principal)*CFG.BANK.breakage;   // fee on what is actually repaid
+  const total = arr + principal + fee;
+  if(total > S.cash){ toast("Not enough cash.", "bad"); return; }
+  S.cash -= total;
+  l.arrears -= arr; if(l.arrears <= 0.5){ l.arrears = 0; l.arrearsDays = 0; }
+  l.principal -= principal; l.paidP += principal;
+  S.ledger.principal += principal; S.ledger.fees = (S.ledger.fees||0) + fee;
+  if(l.shipId) syncShipDebt(S.ships.find(s=>s.id === l.shipId));
+  const gone = l.principal <= 0.01 && l.arrears <= 0.5;
+  if(gone) closeLoan(l);
+  hideSheet(); dirty(); checkCovenants(false);
+  toast(gone ? `${loanLabel(l)} cleared in full — ${money0(fee)} breakage.`
+             : `${money(principal+arr)} repaid, ${money(l.principal)} outstanding.`, "good");
+}
+
+/* ==========================================================================
+   SALE AND LEASEBACK
+   The ship leaves your balance sheet and comes straight back on bareboat
+   terms. You keep operating her — crew, maintenance, insurance, voyages, all
+   unchanged — but you owe a fixed daily hire for years whether she earns or
+   not, and at the end she is only yours again if you exercise the option.
+   ========================================================================= */
+function leasebackQuote(sh){
+  const c = CFG.BANK.lease;
+  const val = assetValue(sh.cls, shipAge(sh), MKT);
+  const price = val*c.price;
+  const owed = loansForShip(sh.id).reduce((a,l)=>a+l.principal+(l.arrears||0), 0);
+  return { val, price, owed, net: price - owed,
+           daily: price*c.rate/365, years: c.years, option: price*c.option };
+}
+function doLeaseback(shipId){
+  const sh = S.ships.find(s=>s.id === shipId); if(!sh) return;
+  if(sh.lease){ toast("She is already on lease.", "bad"); return; }
+  const q = leasebackQuote(sh);
+  if(q.net < 0 && -q.net > S.cash){ toast("The sale does not cover her mortgage.", "bad"); return; }
+  bankCloseForShip(shipId);
+  syncShipDebt(sh);
+  S.cash += q.net;
+  sh.lease = { lessor: nextLender(LESSORS), price: q.price, daily: q.daily,
+               startDay: S.day, endDay: S.day + q.years*365, option: q.option,
+               exercise: true, paid: 0 };
+  hideSheet(); dirty(); checkCovenants(false);
+  toast(`<b>${esc(sh.name)}</b> sold to ${esc(sh.lease.lessor)} for ${money(q.price)} and chartered back at ${money0(q.daily)}/day for ${q.years} years. ${money(q.net)} released.`, "good");
+}
+/* Expiry: exercise the option and she is yours again, or she is redelivered
+   and you are a ship short. Told well in advance, both times. */
+function bankLeaseDay(d, quiet){
+  for(const sh of S.ships.slice()){
+    const L = sh.lease; if(!L) continue;
+    const left = L.endDay - d;
+    if(left <= 60 && !L.warned60){
+      L.warned60 = true;
+      if(!quiet) queueNote("Lease expiring",
+        `The bareboat charter of <b>${esc(sh.name)}</b> from ${esc(L.lessor)} ends in ${Math.round(left)} days.
+         The purchase option is ${money(L.option)}. Exercise it and she is yours outright; let it lapse and she goes back to the lessor.`, "warn");
+    }
+    if(d < L.endDay) continue;
+    if(L.exercise && S.cash >= L.option){
+      S.cash -= L.option; S.ledger.snp += L.option;
+      sh.lease = null;
+      if(!quiet) queueNote("Option exercised",
+        `<b>${esc(sh.name)}</b> is yours again — ${money(L.option)} paid to ${esc(L.lessor)}. No hire, no mortgage, free and clear.`, "good");
+    } else {
+      if(typeof releaseFromService === "function") releaseFromService(sh);
+      S.ships = S.ships.filter(s=>s !== sh);
+      if(!quiet) queueNote("Redelivered",
+        `<b>${esc(sh.name)}</b> has gone back to ${esc(L.lessor)} at the end of her bareboat charter.
+         ${L.exercise ? `The option was ${money(L.option)} and there was not enough in the account to take it.` : "The option was not exercised."}
+         Seven years of hire bought seven years of trading, and nothing else.`, "bad");
+    }
+  }
+}
+
+/* ==========================================================================
+   §UI — the bank lives on a segmented control inside Company, so the tab bar
+   stays at six.
+   ========================================================================= */
+function loanLabel(l){
+  if(l.kind === "rcf") return "Revolving facility";
+  if(l.kind === "corp") return "Unsecured loan";
+  const sh = S.ships.find(s=>s.id === l.shipId);
+  return sh ? "Mortgage · " + sh.name : "Ship mortgage";
+}
+function nextDraftDay(){
+  const ls = bankLoans(); if(!ls.length) return null;
+  return ls.reduce((a,l)=>Math.min(a, l.nextDue), Infinity);
+}
+function nextDraftAmount(){
+  const day = nextDraftDay(); if(day === null) return 0;
+  // Everything falling due within the same week reads as one bill to the player.
+  return bankLoans().filter(l=>l.nextDue <= day + 7)
+                    .reduce((a,l)=>a+loanDue(l).total+(l.arrears||0), 0);
+}
+
+function vBank(){
+  const loans = bankLoans(), debt = totalDebt(), assets = fleetValue();
+  const arr = totalArrears(), svc = debtServiceDay(), lse = leaseCostDay();
+  let h = "";
+
+  if(arr > 0.5){
+    const worst = Math.max(...loans.map(l=>l.arrearsDays||0));
+    h += `<div class="card" style="border-color:var(--neg);background:rgba(224,82,82,.08)">
+      <div class="b neg">${money(arr)} in ${T("arrears","arrears")} — ${Math.max(0,CFG.BANK.graceDays-worst)} days to clear</div>
+      <div class="sm mut" style="margin-top:5px">Penalty interest is running at ${pc(CFG.BANK.defaultSpread)} over the loan rate. Past ${CFG.BANK.graceDays} days it is an event of default and the whole book becomes repayable on demand.</div></div>`;
+  }
+
+  h += `<div class="card" style="padding:14px">
+    <div class="between">
+      <div><div class="xs mut2">Total borrowings</div><div class="lg b">${money(debt)}</div></div>
+      <div style="text-align:right"><div class="xs mut2">${T("ltv","LTV")}</div>
+        <div class="lg b ${debt/Math.max(1,assets)>0.7?"neg":debt/Math.max(1,assets)>0.55?"haz":""}">${assets>0?pc(debt/assets):"—"}</div></div>
+    </div>
+    <div class="row xs mut2" style="margin-top:8px;gap:10px;flex-wrap:wrap">
+      <span>Rating ${S.rating}</span>
+      <span>Your rate ${pc(loanRate())}</span>
+      <span>Service ${money0(svc)}/day</span>
+      ${lse>0?`<span>Bareboat hire ${money0(lse)}/day</span>`:""}
+    </div>
+  </div>`;
+
+  if(loans.length){
+    const d = nextDraftDay();
+    h += `<div class="card">
+      ${kv("Next instalment", money(nextDraftAmount()) + " on " + dateFull(Math.ceil(d)))}
+      ${kv("Monthly, all facilities", money(bankLoans().reduce((a,l)=>a+loanDue(l).total,0)))}
+      <div class="between" style="margin-top:9px;padding-top:9px;border-top:1px solid var(--line)">
+        <div class="grow"><div class="b sm">Auto-draft instalments</div>
+          <div class="xs mut" style="margin-top:3px">${S.autoDraft!==false
+            ? "Each facility is drafted from the account on its own monthly date. Short of cash and the shortfall becomes arrears."
+            : '<span class="haz">Off — nothing is paid unless you pay it. Every instalment falls straight into arrears with penalty interest.</span>'}</div></div>
+        <button class="btn sm" style="flex:none" onclick="S.autoDraft=!(S.autoDraft!==false);dirty()">${S.autoDraft!==false?"On":"Off"}</button>
+      </div></div>`;
+  }
+
+  // --- facilities ---------------------------------------------------------
+  const rcf = rcfLoan();
+  if(rcf){
+    const used = rcf.principal/Math.max(1, rcf.limit);
+    h += `<h2 class="sect">${T("rcf","Revolving facility")}</h2>
+      <div class="card tap" onclick="sheetLoan('${rcf.id}')">
+        <div class="between"><div><div class="b">${esc(rcf.lender)}</div>
+          <div class="xs mut2">${money(rcf.principal)} drawn of ${money(rcf.limit)} · ${pc(rcf.rate)} on drawn</div></div>
+          <div style="text-align:right"><div class="b ${used>0.85?"neg":""}">${pc(used)}</div>
+            <div class="xs mut2">used</div></div></div>
+        <div class="bar ${used>0.85?"bad":used>0.6?"warn":""}" style="margin-top:9px"><i style="width:${pc(clamp(used,0,1))}"></i></div>
+      </div>
+      <div class="row" style="gap:8px">
+        <button class="btn sm grow" onclick="sheetDraw()" ${rcf.principal>=rcf.limit-1000?"disabled":""}>Draw</button>
+        <button class="btn sm grow" onclick="sheetRepayRcf()" ${rcf.principal<1000?"disabled":""}>Repay</button>
+      </div>`;
+  }
+
+  const term = loans.filter(l=>l.kind !== "rcf");
+  if(term.length){
+    h += `<h2 class="sect">Term loans</h2>`;
+    for(const l of term) h += loanCard(l);
+  }
+
+  const leased = S.ships.filter(s=>s.lease);
+  if(leased.length){
+    h += `<h2 class="sect">${T("leaseback","On bareboat charter")}</h2>`;
+    for(const sh of leased){
+      const L = sh.lease, left = Math.max(0, L.endDay - S.day);
+      h += `<div class="card tap" onclick="sheetLease(${sh.id})">
+        <div class="between"><div><div class="b">${esc(sh.name)}</div>
+          <div class="xs mut2">${esc(L.lessor)} · ${(left/365).toFixed(1)} years left</div></div>
+        <div style="text-align:right"><div class="b neg">−${money0(L.daily)}</div>
+          <div class="xs mut2">per day</div></div></div></div>`;
+    }
+  }
+
+  if(!loans.length && !leased.length)
+    h += `<div class="card"><div class="sm mut">No borrowings. Debt-free is safe and slow — a ship bought with cash earns the same as a ship bought with 60% debt, on three times the capital.</div></div>`;
+
+  // --- borrow -------------------------------------------------------------
+  h += `<h2 class="sect">Raise money</h2>`;
+  const mortgageable = S.ships.filter(s=>!s.lease && maxMortgage(s) >= CFG.BANK.minLoan);
+  h += bankProduct("🚢", T("mortgage","Ship mortgage"),
+    `Secured on one vessel, up to ${pc(CFG.FIN.maxLtv)} of her value. The cheapest money in shipping because the bank can take the ship.`,
+    mortgageable.length ? `Up to ${money(Math.max(...mortgageable.map(maxMortgage)))} · from ${pc(loanRate())}` : "No unencumbered value to lend against",
+    mortgageable.length ? "sheetMortgagePick()" : null);
+
+  if(bankGate("rcf") && !rcf)
+    h += bankProduct("🔄", T("rcf","Revolving credit facility"),
+      `A committed line you draw and repay as you please. Interest only on what you use, ${(CFG.BANK.rcf.commitment*10000).toFixed(0)}bps a year on what you do not. This is what stops a late freight payment becoming a crisis.`,
+      rcfLimit() >= CFG.BANK.minLoan ? `Limit ${money(rcfLimit())} · ${pc(loanRate(CFG.BANK.rcf.spread))}` : "Balance sheet too small",
+      rcfLimit() >= CFG.BANK.minLoan ? "sheetRcf()" : null);
+  else if(!bankGate("rcf"))
+    h += bankProduct("🔄", "Revolving credit facility", "Working-capital line, drawn and repaid at will.",
+      `Opens at ${CFG.BANK.rcf.gateVoyages} voyages · ${S.voyagesDone}/${CFG.BANK.rcf.gateVoyages}`, null);
+
+  if(bankGate("corp"))
+    h += bankProduct("📄", T("unsecured","Unsecured corporate loan"),
+      `Nothing pledged, so the margin is ${(CFG.BANK.corp.spread*10000).toFixed(0)}bps over your secured rate and the term is months, not years. Fast, flexible, and dear.`,
+      maxCorp() >= CFG.BANK.minLoan ? `Up to ${money(maxCorp())} · ${pc(loanRate(CFG.BANK.corp.spread))}` : "No headroom",
+      maxCorp() >= CFG.BANK.minLoan ? "sheetCorp()" : null);
+
+  if(bankGate("lease")){
+    const cands = S.ships.filter(s=>!s.lease && !s.voyage);
+    h += bankProduct("🏦", T("leaseback","Sale and leaseback"),
+      `Sell a ship to a leasing house and charter her straight back. All the cash today, a fixed daily hire for ${CFG.BANK.lease.years} years, and she is only yours again if you take the option.`,
+      cands.length ? `About ${pc(CFG.BANK.lease.price)} of market value` : "No idle ship to sell",
+      cands.length ? "sheetLeasebackPick()" : null);
+  }
+
+  h += `<div class="xs mut2" style="margin:14px 2px 0">Leverage cuts both ways. Debt is repaid out of a margin that moves with the freight market, and in a downturn asset values fall faster than the loan does — that is what a ${T("covenant","covenant")} breach is, and it is how most owners who fail, fail.</div>`;
+  return h;
+}
+function bankProduct(icon, title, blurb, foot, onclick){
+  return `<div class="card${onclick?" tap":""}" ${onclick?`onclick="${onclick}"`:'style="opacity:.55"'}>
+    <div class="row" style="gap:11px;align-items:flex-start">
+      <div style="font-size:22px;line-height:1">${icon}</div>
+      <div class="grow"><div class="b sm">${title}</div>
+        <div class="xs mut" style="margin-top:3px">${blurb}</div>
+        <div class="xs ${onclick?"acc":"mut2"}" style="margin-top:5px">${foot}</div></div>
+    </div></div>`;
+}
+function loanCard(l){
+  const due = loanDue(l), sh = S.ships.find(s=>s.id === l.shipId);
+  const paidShare = l.orig > 0 ? clamp(l.paidP/l.orig, 0, 1) : 0;
+  return `<div class="card tap" onclick="sheetLoan('${l.id}')">
+    <div class="between"><div class="grow trunc">
+      <div class="b trunc">${esc(loanLabel(l))}</div>
+      <div class="xs mut2">${esc(l.lender)} · ${pc(l.rate)} · ${Math.max(0,Math.round((l.drawDay+l.termDays-S.day)/30.44))} months left</div></div>
+      <div style="text-align:right"><div class="b">${money(l.principal)}</div>
+        <div class="xs mut2">${money0(due.total)}/mo</div></div></div>
+    ${l.arrears>0.5?`<div class="xs neg" style="margin-top:6px">${money(l.arrears)} overdue · ${l.arrearsDays} days</div>`:""}
+    <div class="bar" style="margin-top:9px"><i style="width:${pc(paidShare)}"></i></div>
+    ${sh?`<div class="xs mut2" style="margin-top:5px">${pc(l.principal/Math.max(1,assetValue(sh.cls,shipAge(sh),MKT)))} of her value</div>`:""}
+  </div>`;
+}
+
+/* --- amount picker -------------------------------------------------------
+   One slider, one live readout, and the derived figures update as you drag
+   without rebuilding the sheet under your thumb. */
+let bankAmt = 0;
+function amountSlider(max, id, onchange){
+  const step = Math.max(50000, Math.round(max/40/50000)*50000);
+  return `<input type="range" min="0" max="${Math.round(max)}" step="${step}" value="${Math.round(bankAmt)}"
+    oninput="bankAmt=+this.value;${id}()" onchange="${onchange||""}">`;
+}
+const bkSet = (id, txt)=>{ const e = $(id); if(e) e.innerHTML = txt; };
+
+function sheetMortgagePick(){
+  const cands = S.ships.filter(s=>!s.lease && maxMortgage(s) >= CFG.BANK.minLoan);
+  showSheet("Mortgage a ship", "Which vessel",
+    cands.map(sh=>{
+      const val = assetValue(sh.cls, shipAge(sh), MKT), cap = maxMortgage(sh);
+      const owed = loansForShip(sh.id).reduce((a,l)=>a+l.principal, 0);
+      return `<div class="card tap" style="margin:0 0 9px" onclick="sheetMortgage(${sh.id})">
+        <div class="between"><div><div class="b">${esc(sh.name)}</div>
+          <div class="xs mut2">${CLASSES[sh.cls].name} · ${shipAge(sh)} years · worth ${money(val)}</div>
+          ${owed>0?`<div class="xs mut2">${money(owed)} already secured on her</div>`:""}</div>
+          <div style="text-align:right"><div class="b pos">${money(cap)}</div>
+            <div class="xs mut2">available</div></div></div></div>`;
+    }).join(""));
+}
+let mortTerm = 12, mortShip = null;
+function sheetMortgage(shipId){
+  const sh = S.ships.find(s=>s.id === shipId); if(!sh) return;
+  mortShip = shipId;
+  bankAmt = Math.round(maxMortgage(sh)/50000)*50000;
+  renderMortgage(shipId);
+}
+function renderMortgage(shipId){
+  const sh = S.ships.find(s=>s.id === shipId);
+  const val = assetValue(sh.cls, shipAge(sh), MKT), cap = maxMortgage(sh);
+  bankAmt = clamp(bankAmt, 0, cap);
+  const rate = loanRate(CFG.BANK.mortgage.spread);
+  showSheet("Mortgage " + esc(sh.name), CLASSES[sh.cls].name + " · worth " + money(val),
+    `<div class="card" style="margin:0 0 12px;text-align:center;padding:15px">
+      <div class="xs mut2">Raise</div>
+      <div class="xl b" id="mg-amt">${money(bankAmt)}</div>
+      <div class="xs mut2" id="mg-ltv">${mgLtvLine(sh, val)}</div>
+     </div>
+     <div class="card" style="margin:0 0 12px">
+      ${amountSlider(cap, "mgTick", `renderMortgage(${shipId})`)}
+      <div class="row xs mut2"><span>$0</span><span style="margin-left:auto">${money(cap)} max</span></div>
+      <div class="row" style="gap:6px;margin-top:9px">
+        ${[0.25,0.5,0.75,1].map(f=>`<button class="btn sm grow" onclick="bankAmt=${Math.round(cap*f)};renderMortgage(${shipId})">${pc(f)}</button>`).join("")}
+      </div>
+     </div>
+     <h2 class="sect" style="margin-top:0">Term</h2><div class="card" style="margin:0 0 12px">
+      <div class="row" style="gap:6px">${CFG.BANK.mortgage.terms.map(t=>
+        `<button class="btn sm grow" ${mortTerm===t?'style="border-color:var(--acc);color:var(--acc)"':""}
+          onclick="mortTerm=${t};renderMortgage(${shipId})">${t} yr</button>`).join("")}</div>
+      <div class="xs mut2" style="margin-top:8px">A shorter term repays faster and costs less interest in total, but the monthly instalment is bigger and it is the instalment that sinks people.</div>
+     </div>
+     <h2 class="sect">Terms</h2><div class="card" style="margin:0">
+      ${kvs("Rate", pc(rate) + " — base " + pc(CFG.FIN.rateBase) + " plus " + pc(rate-CFG.FIN.rateBase) + " margin at rating " + S.rating)}
+      ${kv("Arrangement fee", "−"+money0(bankAmt*CFG.BANK.arrangement), "neg")}
+      ${kvt("Cash to you", money(bankAmt*(1-CFG.BANK.arrangement)), "pos")}
+      <div style="height:9px"></div>
+      ${kv("Monthly instalment", money0(mortInstal(bankAmt, rate, mortTerm)), "neg")}
+      ${kv("Of which interest", money0(bankAmt*rate*CFG.BANK.period/365))}
+      ${kv("Total interest over the term", money(bankAmt*rate*mortTerm/2*1.02))}
+      ${kv("Group "+T("ltv","LTV")+" after", pc((totalDebt()+bankAmt)/Math.max(1,fleetValue())),
+           (totalDebt()+bankAmt)/Math.max(1,fleetValue())>0.65?"haz":"")}
+     </div>
+     <div class="xs mut2" style="margin-top:10px">The bank registers a mortgage against her at the ${esc(FLAGS[sh.flag||"marshall"].name)} registry. Sell her and this is repaid out of the proceeds before anything reaches you.</div>`,
+    `<button class="btn pri" ${bankAmt<CFG.BANK.minLoan?"disabled":""} onclick="takeMortgage(${shipId},${bankAmt},${mortTerm})">
+      ${bankAmt<CFG.BANK.minLoan?"Too small":"Draw "+money(bankAmt)}</button>`);
+}
+/* When she already carries a mortgage, the LTV that matters is the total on
+   her — say so, rather than letting the player read the new slice as the whole. */
+function mgLtvLine(sh, val){
+  const already = loansForShip(sh.id).reduce((a,l)=>a+l.principal, 0);
+  const tot = bankAmt + already;
+  return already > 0
+    ? `${money(tot)} secured on her in total — ${pc(tot/val)} of her value`
+    : `${pc(tot/val)} of her value`;
+}
+function mgTick(){
+  bkSet("mg-amt", money(bankAmt));
+  const sh = S.ships.find(s=>s.id === mortShip); if(!sh) return;
+  bkSet("mg-ltv", mgLtvLine(sh, assetValue(sh.cls, shipAge(sh), MKT)));
+}
+function mortInstal(amt, rate, years){
+  return amt*rate*CFG.BANK.period/365 + amt/(years*365/CFG.BANK.period);
+}
+
+function sheetRcf(){
+  const lim = rcfLimit(), rate = loanRate(CFG.BANK.rcf.spread), fee = lim*CFG.BANK.arrangement;
+  showSheet(T("rcf","Revolving credit facility"), "Working capital",
+    `<div class="card" style="margin:0 0 12px;text-align:center;padding:15px">
+      <div class="xs mut2">Committed limit</div><div class="xl b">${money(lim)}</div>
+      <div class="xs mut2">sized on ${pc(CFG.BANK.rcf.ofEquity)} of equity and ${pc(CFG.BANK.rcf.ofFleet)} of fleet value</div>
+     </div>
+     <div class="card" style="margin:0 0 12px">
+      <div class="sm mut">A revolver is not a loan you take, it is a loan you are allowed to take. Draw what you need on the day you need it, repay it the day the freight lands, and pay a small fee for the privilege of it being there.</div>
+     </div>
+     <div class="card" style="margin:0">
+      ${kv("Interest on drawn", pc(rate))}
+      ${kv("Commitment fee on undrawn", (CFG.BANK.rcf.commitment*100).toFixed(2)+"% a year")}
+      ${kv("If you never draw it", money0(lim*CFG.BANK.rcf.commitment/365)+"/day")}
+      ${kv("If fully drawn", money0(lim*rate/365)+"/day")}
+      ${kv("Arrangement fee now", "−"+money0(fee), "neg")}
+      ${kvs("Repayment", "Interest only — the principal sits there until you repay it")}
+     </div>
+     <div class="xs mut2" style="margin-top:10px">The limit is reviewed against your balance sheet, so it grows with the fleet and shrinks in a downturn — precisely when you would want it most. That is not a bug in the design of shipping finance, it is the design.</div>`,
+    `<button class="btn pri" ${fee>S.cash||lim<CFG.BANK.minLoan?"disabled":""} onclick="openRcf()">
+      ${fee>S.cash?"Not enough cash for the fee":"Agree the facility"}</button>`);
+}
+function sheetDraw(){
+  const l = rcfLoan(); if(!l) return;
+  const avail = Math.min(l.limit - l.principal, groupHeadroom());
+  bankAmt = clamp(bankAmt || avail, 0, avail);
+  renderDraw();
+}
+function renderDraw(){
+  const l = rcfLoan(); if(!l) return;
+  const avail = Math.min(l.limit - l.principal, groupHeadroom());
+  bankAmt = clamp(bankAmt, 0, avail);
+  showSheet("Draw on the facility", esc(l.lender),
+    `<div class="card" style="margin:0 0 12px;text-align:center;padding:15px">
+      <div class="xs mut2">Draw</div><div class="xl b" id="dr-amt">${money(bankAmt)}</div>
+      <div class="xs mut2">${money(avail-bankAmt)} would remain available</div></div>
+     <div class="card" style="margin:0 0 12px">
+      ${amountSlider(avail, "drTick", "renderDraw()")}
+      <div class="row" style="gap:6px;margin-top:9px">
+        ${[0.25,0.5,1].map(f=>`<button class="btn sm grow" onclick="bankAmt=${Math.round(avail*f)};renderDraw()">${pc(f)}</button>`).join("")}
+      </div></div>
+     <div class="card" style="margin:0">
+      ${kv("Interest while drawn", money0(bankAmt*l.rate/365)+"/day")}
+      ${kv("Commitment fee saved", money0(bankAmt*CFG.BANK.rcf.commitment/365)+"/day", "pos")}
+      ${kv("Net cost of drawing", money0(bankAmt*(l.rate-CFG.BANK.rcf.commitment)/365)+"/day", "neg")}
+      ${kv("Repayable", "Whenever you like, no fee")}
+     </div>`,
+    `<button class="btn pri" ${bankAmt<1000?"disabled":""} onclick="drawRcf(${bankAmt})">Draw ${money(bankAmt)}</button>`);
+}
+function drTick(){ bkSet("dr-amt", money(bankAmt)); }
+function sheetRepayRcf(){
+  const l = rcfLoan(); if(!l) return;
+  const max = Math.min(l.principal, S.cash);
+  bankAmt = clamp(bankAmt || max, 0, max);
+  renderRepayRcf();
+}
+function renderRepayRcf(){
+  const l = rcfLoan(); if(!l) return;
+  const max = Math.min(l.principal, S.cash);
+  bankAmt = clamp(bankAmt, 0, max);
+  showSheet("Repay the facility", esc(l.lender),
+    `<div class="card" style="margin:0 0 12px;text-align:center;padding:15px">
+      <div class="xs mut2">Repay</div><div class="xl b" id="rr-amt">${money(bankAmt)}</div>
+      <div class="xs mut2">${money(l.principal-bankAmt)} would remain drawn</div></div>
+     <div class="card" style="margin:0 0 12px">
+      ${amountSlider(max, "rrTick", "renderRepayRcf()")}
+      <div class="row" style="gap:6px;margin-top:9px">
+        ${[0.5,1].map(f=>`<button class="btn sm grow" onclick="bankAmt=${Math.round(max*f)};renderRepayRcf()">${f===1?"All":pc(f)}</button>`).join("")}
+      </div></div>
+     <div class="card" style="margin:0">
+      ${kv("Interest saved", money0(bankAmt*l.rate/365)+"/day", "pos")}
+      ${kv("Commitment fee resumes on it", money0(bankAmt*CFG.BANK.rcf.commitment/365)+"/day", "neg")}
+      ${kv("Cash after", money(S.cash-bankAmt), cls_pn(S.cash-bankAmt))}
+      ${kvs("Early repayment fee", "None — that is what the commitment fee buys")}
+     </div>`,
+    `<button class="btn pri" ${bankAmt<1000?"disabled":""} onclick="repayRcf(${bankAmt})">Repay ${money(bankAmt)}</button>`
+    + (l.principal < 1 ? `<button class="btn sm" style="margin-top:8px" onclick="closeRcf()">Cancel the facility</button>` : ""));
+}
+function rrTick(){ bkSet("rr-amt", money(bankAmt)); }
+
+let corpTerm = 9;
+function sheetCorp(){ bankAmt = Math.round(maxCorp()/50000)*50000; renderCorp(); }
+function renderCorp(){
+  const max = maxCorp(), rate = loanRate(CFG.BANK.corp.spread);
+  bankAmt = clamp(bankAmt, 0, max);
+  const instal = bankAmt*rate*CFG.BANK.period/365 + bankAmt/corpTerm;
+  showSheet(T("unsecured","Unsecured corporate loan"), "No ship pledged",
+    `<div class="card" style="margin:0 0 12px;text-align:center;padding:15px">
+      <div class="xs mut2">Borrow</div><div class="xl b" id="co-amt">${money(bankAmt)}</div>
+      <div class="xs mut2">at ${pc(rate)} — ${pc(CFG.BANK.corp.spread)} over your secured rate</div></div>
+     <div class="card" style="margin:0 0 12px">
+      ${amountSlider(max, "coTick", "renderCorp()")}
+      <div class="row" style="gap:6px;margin-top:9px">
+        ${[0.25,0.5,1].map(f=>`<button class="btn sm grow" onclick="bankAmt=${Math.round(max*f)};renderCorp()">${pc(f)}</button>`).join("")}
+      </div></div>
+     <h2 class="sect" style="margin-top:0">Term</h2><div class="card" style="margin:0 0 12px">
+      <div class="row" style="gap:6px">${CFG.BANK.corp.terms.map(t=>
+        `<button class="btn sm grow" ${corpTerm===t?'style="border-color:var(--acc);color:var(--acc)"':""}
+          onclick="corpTerm=${t};renderCorp()">${t} mo</button>`).join("")}</div></div>
+     <div class="card" style="margin:0">
+      ${kv("Monthly instalment", money0(instal), "neg")}
+      ${kv("Arrangement fee", "−"+money0(bankAmt*CFG.BANK.arrangement), "neg")}
+      ${kvt("Cash to you", money(bankAmt*(1-CFG.BANK.arrangement)), "pos")}
+      ${kv("Total cost of the money", money0(bankAmt*rate*corpTerm/12/2*1.05+bankAmt*CFG.BANK.arrangement))}
+     </div>
+     <div class="card" style="margin-top:12px;border-color:var(--haz)">
+      <div class="sm">This is short money at a long price. It makes sense to bridge a known receipt — a voyage about to discharge, a ship about to be sold — and very little sense to fund losses with. ${money0(instal)} leaves the account every month whatever the market does.</div>
+     </div>`,
+    `<button class="btn pri" ${bankAmt<CFG.BANK.minLoan?"disabled":""} onclick="takeCorp(${bankAmt},${corpTerm})">
+      ${bankAmt<CFG.BANK.minLoan?"Too small":"Borrow "+money(bankAmt)}</button>`);
+}
+function coTick(){ bkSet("co-amt", money(bankAmt)); }
+
+function sheetLoan(id){
+  const l = bankLoans().find(x=>x.id === id); if(!l) return;
+  const due = loanDue(l), sh = S.ships.find(s=>s.id === l.shipId);
+  const monthsLeft = Math.max(0, (l.drawDay + l.termDays - S.day)/CFG.BANK.period);
+  showSheet(esc(loanLabel(l)), esc(l.lender) + " · " + pc(l.rate),
+    `<div class="card" style="margin:0 0 12px">
+      ${kv("Outstanding", money(l.principal))}
+      ${kv("Originally drawn", money(l.orig))}
+      ${kv("Principal repaid", money(l.paidP), "pos")}
+      ${kv("Interest paid to date", money(l.paidI), "neg")}
+      ${l.arrears>0.5?kv(T("arrears","Arrears"), money(l.arrears)+" · "+l.arrearsDays+" days", "neg"):""}
+     </div>
+     <h2 class="sect" style="margin-top:0">Instalment</h2><div class="card" style="margin:0 0 12px">
+      ${kv("Interest", money0(due.interest))}
+      ${due.principal>0?kv(T("amort","Principal"), money0(due.principal)):kv("Principal", "Interest only")}
+      ${due.fee>0?kv("Commitment fee on undrawn", money0(due.fee)):""}
+      ${kvt("Every month", money0(due.total), "neg")}
+      ${kv("Next drafted", dateFull(Math.ceil(l.nextDue)))}
+      ${l.kind!=="rcf"?kv("Term remaining", monthsLeft.toFixed(0)+" months"):""}
+      ${kv("Daily equivalent", money0(loanServiceDay(l))+"/day")}
+     </div>
+     ${sh?`<div class="card" style="margin:0 0 12px">
+      ${kv("Secured on", esc(sh.name))}
+      ${kv("Her value", money(assetValue(sh.cls, shipAge(sh), MKT)))}
+      ${kv("This loan as "+T("ltv","LTV"), pc(l.principal/Math.max(1,assetValue(sh.cls,shipAge(sh),MKT))))}
+     </div>`:""}`,
+    `<button class="btn pri" onclick="sheetPrepay('${l.id}')">Repay early</button>`
+    + (l.kind === "mortgage" ? `<button class="btn sm" style="margin-top:8px" onclick="sheetRefi('${l.id}')">Refinance</button>` : ""));
+}
+function sheetPrepay(id){
+  const l = bankLoans().find(x=>x.id === id); if(!l) return;
+  if(l.kind === "rcf") return sheetRepayRcf();
+  const owed = l.principal + l.arrears;
+  const max = Math.min(owed, S.cash/(1+CFG.BANK.breakage));
+  bankAmt = clamp(max, 0, max);
+  renderPrepay(id);
+}
+function renderPrepay(id){
+  const l = bankLoans().find(x=>x.id === id); if(!l) return;
+  const owed = l.principal + l.arrears;
+  const max = Math.min(owed, S.cash/(1+CFG.BANK.breakage));
+  bankAmt = clamp(bankAmt, 0, max);
+  const fee = bankAmt*CFG.BANK.breakage;
+  showSheet("Repay early", esc(loanLabel(l)),
+    `<div class="card" style="margin:0 0 12px;text-align:center;padding:15px">
+      <div class="xs mut2">Repay</div><div class="xl b" id="pp-amt">${money(bankAmt)}</div>
+      <div class="xs mut2">of ${money(owed)} outstanding</div></div>
+     <div class="card" style="margin:0 0 12px">
+      ${amountSlider(max, "ppTick", `renderPrepay('${id}')`)}
+      <div class="row" style="gap:6px;margin-top:9px">
+        ${[0.5,1].map(f=>`<button class="btn sm grow" onclick="bankAmt=${Math.round(max*f)};renderPrepay('${id}')">${f===1?"All I can":"Half"}</button>`).join("")}
+      </div></div>
+     <div class="card" style="margin:0">
+      ${kv("Breakage fee", "−"+money0(fee)+" ("+pc(CFG.BANK.breakage)+")", "neg")}
+      ${kvt("Cash out", money(bankAmt+fee), "neg")}
+      ${kv("Interest saved", money0(bankAmt*l.rate/365)+"/day", "pos")}
+      ${kv("Instalment after", money0(Math.max(0,loanDue(l).total - bankAmt*l.rate*CFG.BANK.period/365 - (l.amort?Math.min(l.amort, bankAmt/Math.max(1,l.principal)*l.amort):0)))+"/mo")}
+      ${kv("Cash after", money(S.cash-bankAmt-fee), cls_pn(S.cash-bankAmt-fee))}
+     </div>
+     <div class="xs mut2" style="margin-top:10px">The lender priced the whole term, so breaking it early costs ${pc(CFG.BANK.breakage)} of what you repay. Worth it to clear expensive unsecured money; rarely worth it on a cheap ship mortgage you could instead put to work.</div>`,
+    `<button class="btn pri" ${bankAmt<1000?"disabled":""} onclick="prepay('${id}',${bankAmt})">Repay ${money(bankAmt)}</button>`);
+}
+function ppTick(){ bkSet("pp-amt", money(bankAmt)); }
+
+let refiTerm = 12;
+function sheetRefi(id){
+  const l = bankLoans().find(x=>x.id === id); if(!l) return;
+  const sh = S.ships.find(s=>s.id === l.shipId); if(!sh) return;
+  const val = assetValue(sh.cls, shipAge(sh), MKT);
+  const others = loansForShip(sh.id).filter(x=>x !== l).reduce((a,x)=>a+x.principal, 0);
+  bankAmt = Math.max(0, Math.min(val*CFG.FIN.maxLtv - others, groupHeadroom() + l.principal));
+  renderRefi(id);
+}
+function renderRefi(id){
+  const l = bankLoans().find(x=>x.id === id); if(!l) return;
+  const sh = S.ships.find(s=>s.id === l.shipId); if(!sh) return;
+  const val = assetValue(sh.cls, shipAge(sh), MKT);
+  const others = loansForShip(sh.id).filter(x=>x !== l).reduce((a,x)=>a+x.principal, 0);
+  const cap = Math.max(0, Math.min(val*CFG.FIN.maxLtv - others, groupHeadroom() + l.principal));
+  bankAmt = clamp(bankAmt, 0, cap);
+  const rate = loanRate(CFG.BANK.mortgage.spread);
+  const owed = l.principal + l.arrears, fee = bankAmt*CFG.BANK.refiFee;
+  const net = bankAmt - owed - fee;
+  showSheet("Refinance", esc(sh.name) + " · worth " + money(val),
+    `<div class="card" style="margin:0 0 12px;text-align:center;padding:15px">
+      <div class="xs mut2">New loan</div><div class="xl b" id="rf-amt">${money(bankAmt)}</div>
+      <div class="xs mut2">replacing ${money(owed)} at ${pc(l.rate)}</div></div>
+     <div class="card" style="margin:0 0 12px">
+      ${amountSlider(cap, "rfTick", `renderRefi('${id}')`)}
+      <div class="row" style="gap:6px;margin-top:9px">
+        ${[0.5,0.75,1].map(f=>`<button class="btn sm grow" onclick="bankAmt=${Math.round(cap*f)};renderRefi('${id}')">${pc(f)}</button>`).join("")}
+      </div></div>
+     <h2 class="sect" style="margin-top:0">Term</h2><div class="card" style="margin:0 0 12px">
+      <div class="row" style="gap:6px">${CFG.BANK.mortgage.terms.map(t=>
+        `<button class="btn sm grow" ${refiTerm===t?'style="border-color:var(--acc);color:var(--acc)"':""}
+          onclick="refiTerm=${t};renderRefi('${id}')">${t} yr</button>`).join("")}</div></div>
+     <div class="card" style="margin:0">
+      ${kv("Old rate", pc(l.rate))}
+      ${kv("New rate", pc(rate), rate<l.rate?"pos":rate>l.rate?"neg":"")}
+      ${kv("Repay the old loan", "−"+money(owed), "neg")}
+      ${kv("Arrangement fee", "−"+money0(fee), "neg")}
+      ${kvt(net>=0?"Cash released":"Cash required", money(Math.abs(net)), net>=0?"pos":"neg")}
+      ${kv("Instalment now", money0(loanDue(l).total)+"/mo")}
+      ${kv("Instalment after", money0(mortInstal(bankAmt, rate, refiTerm))+"/mo")}
+     </div>
+     <div class="xs mut2" style="margin-top:10px">Refinancing is how owners turn a rising asset market into cash without selling the ship. It is also how they arrive at the top of the cycle with more debt than they had at the bottom.</div>`,
+    `<button class="btn pri" ${bankAmt<CFG.BANK.minLoan||(net<0&&-net>S.cash)?"disabled":""} onclick="refinance('${id}',${bankAmt},${refiTerm})">
+      ${net<0&&-net>S.cash?"Not enough cash":"Refinance"}</button>`);
+}
+function rfTick(){ bkSet("rf-amt", money(bankAmt)); }
+
+function sheetLeasebackPick(){
+  const cands = S.ships.filter(s=>!s.lease && !s.voyage);
+  showSheet(T("leaseback","Sale and leaseback"), "Which vessel",
+    (cands.length ? cands.map(sh=>{
+      const q = leasebackQuote(sh);
+      return `<div class="card tap" style="margin:0 0 9px" onclick="sheetLeaseback(${sh.id})">
+        <div class="between"><div><div class="b">${esc(sh.name)}</div>
+          <div class="xs mut2">${CLASSES[sh.cls].name} · worth ${money(q.val)}</div>
+          ${q.owed>0?`<div class="xs mut2">${money(q.owed)} mortgage to clear</div>`:""}</div>
+          <div style="text-align:right"><div class="b pos">${money(q.net)}</div>
+            <div class="xs mut2">released</div></div></div></div>`;
+    }).join("") : `<div class="card" style="margin:0"><div class="sm mut">Every ship is either on a voyage or already leased. A vessel must be free to be sold.</div></div>`));
+}
+function sheetLeaseback(shipId){
+  const sh = S.ships.find(s=>s.id === shipId); if(!sh) return;
+  const q = leasebackQuote(sh);
+  const opexish = opexDayFull(shipCls(sh), shipAge(sh), sh);
+  showSheet("Sell and charter back", esc(sh.name),
+    `<div class="card" style="margin:0 0 12px;text-align:center;padding:15px">
+      <div class="xs mut2">Cash released today</div><div class="xl b pos">${money(q.net)}</div>
+      <div class="xs mut2">${money(q.price)} sale price, ${money(q.owed)} to the bank</div></div>
+     <div class="card" style="margin:0 0 12px">
+      ${kv("Her market value", money(q.val))}
+      ${kv("Lessor pays", money(q.price)+" ("+pc(CFG.BANK.lease.price)+")")}
+      ${kv("Bareboat hire back", money0(q.daily)+"/day", "neg")}
+      ${kv("For", q.years+" years — "+money(q.daily*365*q.years)+" in total", "neg")}
+      ${kv("Purchase option at the end", money(q.option))}
+     </div>
+     <div class="card" style="margin:0 0 12px">
+      ${kv("She still costs you", money0(opexish)+"/day in "+T("opex","OPEX"))}
+      ${kvt("Total daily burden after", money0(opexish+q.daily)+"/day", "neg")}
+      ${kv("Against her mortgage now", money0(shipDebtServiceDay(sh))+"/day")}
+      <div class="xs mut2" style="margin-top:7px">${T("bareboatin","Bareboat in")} means you keep crewing, maintaining, insuring and trading her exactly as before. Commercially nothing changes. Legally she is not yours, so she cannot be mortgaged or sold, and if you stop paying she is simply taken back.</div>
+     </div>
+     <div class="card" style="margin:0;border-color:var(--haz)">
+      <div class="sm">This is the most dangerous instrument in the book. It converts a flexible asset into a fixed obligation: in a strong market the hire is trivial and the cash compounds, and in a weak one you are paying ${money0(q.daily)} a day for a ship earning nothing, with no ship left to sell.</div>
+     </div>`,
+    `<button class="btn pri" onclick="doLeaseback(${shipId})">Sell for ${money(q.price)}</button>`);
+}
+function sheetLease(shipId){
+  const sh = S.ships.find(s=>s.id === shipId); if(!sh || !sh.lease) return;
+  const L = sh.lease, left = Math.max(0, L.endDay - S.day);
+  showSheet("Bareboat charter", esc(sh.name) + " · " + esc(L.lessor),
+    `<div class="card" style="margin:0 0 12px">
+      ${kv("Daily hire", money0(L.daily), "neg")}
+      ${kv("Paid to date", money(L.paid||0))}
+      ${kv("Remaining term", (left/365).toFixed(1)+" years")}
+      ${kv("Still to pay", money(L.daily*left), "neg")}
+      ${kv("Sold for", money(L.price)+" on "+dateFull(L.startDay))}
+     </div>
+     <div class="card" style="margin:0 0 12px">
+      <div class="between"><div class="grow">
+        <div class="b sm">Exercise the purchase option at expiry</div>
+        <div class="xs mut" style="margin-top:3px">${money(L.option)} on ${dateFull(L.endDay)}. With this on she is bought back automatically if the cash is there. With it off — or without the cash — she is redelivered and you are a ship short.</div>
+      </div>
+      <button class="btn sm" style="flex:none" onclick="S.ships.find(s=>s.id===${shipId}).lease.exercise=!${!!L.exercise};sheetLease(${shipId});dirty()">${L.exercise?"On":"Off"}</button></div>
+     </div>
+     <div class="xs mut2">Hire is charged every day she is on the books, working or idle, in drydock or detained. That is what bareboat means.</div>`);
+}
+
+/* --- the segmented control that puts this on the Company tab -------------- */
+function coSub(v){ S.coSub = v; dirty(); }
+function companySeg(){
+  const cur = S.coSub === "bank" ? "bank" : "accounts";
+  return `<div class="seg" style="margin-bottom:12px">
+    <button role="tab" aria-selected="${cur==="accounts"}" onclick="coSub('accounts')">Accounts</button>
+    <button role="tab" aria-selected="${cur==="bank"}" onclick="coSub('bank')">Bank${
+      totalArrears()>0.5?' <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--neg);vertical-align:middle;margin-left:4px"></span>':""}</button>
+  </div>`;
 }
 /* ##########################################################################
    §BOOT

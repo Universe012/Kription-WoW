@@ -1219,3 +1219,170 @@ so time compression cannot outrun the reader.
 Auto-pause (Appendix C) stops the clock on events anyway, so this only matters
 for players who have turned it off — but it would have been a genuine trap for
 exactly the players most likely to run at 24×.
+
+---
+
+## Appendix K — The bank
+
+*"Add a bank feature where i can take loans, pay it back, auto-draft per month
+on current loans etc"*
+
+Shipping is a capital business before it is a transport business. A ship is a
+ten-to-a-hundred-million-dollar asset earning a five-figure daily margin, so
+almost nobody buys one out of cash — what the owner actually manages is a
+balance sheet. Until now the game modelled exactly one financial instrument (a
+mortgage attached to a ship, serviced invisibly every day) and gave the player
+no way to touch it. This appendix covers the finance section that replaces it.
+
+New file: **`p12.js` — §BANK**, concatenated after `p11.js`.
+
+### 1. One loan book
+
+Every obligation now lives in `S.loans[]`:
+
+```js
+{ id, kind, shipId, lender, principal, orig, rate, drawDay, termDays,
+  amort, nextDue, limit, paidP, paidI, arrears, arrearsDays }
+```
+
+Each vessel keeps `sh.debt` as a **mirror** of the loans secured on her,
+rebuilt by `syncShipDebt()`. The mirror's `termDays` is chosen so that
+`orig / termDays` equals the real daily principal repayment — the form the
+existing readers already expected. The vessel sheet, the sale sheet, the S&P
+sheet and the voyage estimate therefore keep asking *"what does this ship owe"*
+and needed no changes at all.
+
+`totalDebt()` now sums the loan book rather than the fleet, so corporate debt
+that is not secured on any ship still counts against LTV and covenants.
+
+### 2. Monthly drafting, not a daily bleed
+
+Debt service used to be deducted every simulated day inside `accrueDaily`.
+That is not how a loan agreement works, and it made the one instrument the
+player could not see the one that never stopped taking money.
+
+Instalments are now **drafted monthly**, each facility on its own date
+(`nextDue`, set one 30.44-day period after drawdown, so a loan taken on the
+14th is not billed a fortnight later). The instalment is:
+
+| Component | Calculation |
+| --- | --- |
+| Interest | `principal × rate × 30.44/365` on the outstanding balance |
+| Principal | level — `orig ÷ (termDays/30.44)`, the same slice every month |
+| Commitment fee | RCF only: `undrawn × 0.35% × 30.44/365` |
+
+Measured over the opening year: **11 drafts** (day 31 to day 335), first
+$27,944, last $27,057, principal outstanding falling $2,185,248 → $2,018,191,
+arrears nil. Gaps alternate 30/31 days as the period is 30.44.
+
+The HUD still shows debt service as a **daily equivalent**, so the monthly
+draft is never news. That figure is `loanDue(l).total / 30.44`.
+
+### 3. What the shortfall does
+
+If the account cannot meet an instalment, cash is applied oldest-first:
+arrears, then this period's fees and interest, then principal.
+
+- Unpaid **interest and fees** become `arrears`, carrying penalty interest at
+  the loan rate **+350bps**, compounding daily.
+- Unpaid **principal** is simply not repaid — the loan runs longer.
+
+Splitting it this way is both correct and load-bearing: it is why `totalDebt()`
+can add `principal + arrears` without counting the same dollar twice.
+
+Arrears standing more than **45 days** is an event of default, which feeds the
+existing covenant machinery — the same 60-day cure period and the same
+enforcement. Verified: with auto-draft switched off and $40M in the bank,
+arrears reach $12,790 at day 40 and $38,756 at day 105, `bankInDefault()` turns
+true, a covenant breach is raised, and at the end of the cure period the lender
+takes the fleet and the rating goes to D.
+
+### 4. Four products
+
+| Product | Security | Rate | Term | Sized by |
+| --- | --- | --- | --- | --- |
+| **Ship mortgage** | one named vessel | base + rating margin | 5 / 8 / 12 yr | ≤65% of her value |
+| **Revolving credit facility** | corporate | +120bps, interest only | evergreen | min(40% of equity, 18% of fleet value) |
+| **Unsecured corporate loan** | none | +400bps | 6 / 9 / 12 months | ≤22% of equity, cap $15M |
+| **Sale and leaseback** | — she is sold | 11.2% of price as bareboat hire | 7 yr | 92% of market value |
+
+All are capped by a **group headroom** test — no lender takes total debt above
+72% of fleet value. In practice this binds early: the opening ship at 60% LTV
+leaves about $480k of headroom, which is exactly the size of working-capital
+line a one-ship owner would actually get.
+
+Everything is priced off `loanRate(spread)` — base plus a margin set by the
+credit rating plus the finance department's contribution — so a wrecked balance
+sheet costs more to fund, which is the whole point of the rating.
+
+**The revolver is the important one.** Three separate rounds of this project
+turned on the player running out of cash mid-voyage. A committed line drawn on
+the day a voyage loads and repaid on the day the freight lands is precisely the
+instrument real owners use for that, and it costs 35bps a year to have sitting
+there unused. It unlocks at 6 voyages, which is about when the problem first
+appears.
+
+**Sale and leaseback is the dangerous one**, and the sheet says so. It converts
+a flexible asset into a fixed obligation: $20.7M today against $6,348/day for
+seven years — $16.2M in total — and a $5.79M purchase option at the end. In a
+strong market the hire is trivial and the cash compounds; in a weak one you are
+paying six thousand a day for a ship earning nothing, with no ship left to sell.
+A leased ship cannot be sold, scrapped or mortgaged, and if the option is not
+exercised she is redelivered and the fleet is one ship shorter. Warned at 60
+days and again on the day.
+
+### 5. Repayment, prepayment, refinancing
+
+- **Repay early** on any term loan, with a **1.5% breakage fee** on the amount
+  actually repaid — the lender priced the whole term.
+- **RCF repayment is free**, which is exactly what the commitment fee buys.
+- **Refinance a mortgage** at the current rate and a new LTV, paying a 1%
+  arrangement fee. This is how owners turn a rising asset market into cash
+  without selling the ship, and how they arrive at the top of the cycle with
+  more debt than they had at the bottom.
+
+### 6. Where it lives
+
+A seventh tab was not acceptable, so Company gained a segmented control:
+**Accounts | Bank**. The Accounts side gained a "Debt service $X/day → Bank"
+row; the Bank badge shows a red dot when anything is in arrears.
+
+Auto-draft is a single toggle, **on by default**. Turned off, the copy is blunt
+about what happens: *"nothing is paid unless you pay it. Every instalment falls
+straight into arrears with penalty interest."*
+
+### 7. Two bugs this turned up
+
+**Net-per-day was omitting the shore organisation.** When the management fee was
+carved out of vessel OPEX in Appendix H and spent ashore instead, the HUD's
+net/day was never updated to subtract it — so it under-reported the daily burn
+by the whole shore cost. Now fixed. Against a 120-day idle run the HUD reads
+−$5,788/day against an actual −$5,586/day, a 3.5% gap that is the amortising
+principal reducing interest over the period.
+
+**Restructuring's D rating was being handed straight back.** `checkCovenants()`
+called `restructure()` — which sets the rating to D — and then fell through to
+its own rating line, recomputing from the *pre-restructuring* LTV and setting it
+back to B. Since a restructured company comes out debt free, the wrecked credit
+rating was the only lasting consequence, and it was being erased a line later.
+`checkCovenants()` now returns after enforcement.
+
+### 8. Compatibility
+
+Saves from before the bank are migrated on load: each vessel's `sh.debt` is
+lifted into the loan book keeping its balance, rate, remaining term and
+payment history. Verified against a hand-built legacy save. A full
+serialise → load round trip after 90 days with two facilities open reproduces
+debt, service, loan count and mirror exactly.
+
+### The most uncertain numbers
+
+- **Commitment fee at 35bps.** Real shipping RCFs run 30–40% of the drawn
+  margin; 35bps against a 120bps margin is 29%, at the low end.
+- **Leaseback at 11.2% of price.** Chinese leasing houses have written bareboat
+  charters anywhere from 8% to 14% depending on the counterparty. 11.2% assumes
+  a mid-tier owner.
+- **Group cap at 72%.** This is a game construct standing in for the judgement
+  of a credit committee. It sits between the 65% single-ship advance rate and
+  the 80% covenant, which feels right, but it is the number most likely to want
+  tuning once players push a large fleet.
